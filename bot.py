@@ -748,7 +748,6 @@ async def get_image(message: types.Message, state: FSMContext):
         f"💰 Coin: {data['coins']}\n"
         f"{diff_icon} Qiyinlik: {DIFFICULTY_NAMES.get(data.get('difficulty','orta'))}\n"
         f"📂 Kategoriya: {data['category']}\n"
-        f"💡 Tavsif: {data.get('explanation') or 'Yo\'q'}\n"
         f" Tavsif: {data.get('explanation') or 'Yoq'}\n"
         f" Rasm: {'Ha' if image_id else 'Yoq'}\n\n"
     )
