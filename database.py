@@ -2,29 +2,36 @@ import sqlite3
 
 DB_NAME = "bilimchallenge.db"
 
-def migrate(self):
+class Database:
+    def __init__(self):
+        self.conn = sqlite3.connect(DB_NAME, check_same_thread=False)
+        self.create_tables()
+        self.migrate()
+
+    def create_tables(self):
         cur = self.conn.cursor()
-        try:
-            cur.execute("ALTER TABLE questions ADD COLUMN image_id TEXT DEFAULT ''")
-            self.conn.commit()
-        except:
-            pass
-        try:
-            cur.execute("ALTER TABLE questions ADD COLUMN difficulty TEXT DEFAULT 'orta'")
-            self.conn.commit()
-        except:
-            pass
-        try:
-            cur.execute("ALTER TABLE questions ADD COLUMN explanation TEXT DEFAULT ''")
-            self.conn.commit()
-        except:
-            pass
-        try:
-            cur.execute("ALTER TABLE users ADD COLUMN streak INTEGER DEFAULT 0")
-            cur.execute("ALTER TABLE users ADD COLUMN max_streak INTEGER DEFAULT 0")
-            self.conn.commit()
-        except:
-            pass
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id     INTEGER PRIMARY KEY,
+                username    TEXT DEFAULT '',
+                first_name  TEXT DEFAULT '',
+                coins       REAL DEFAULT 0,
+                total_ans   INTEGER DEFAULT 0,
+                correct_ans INTEGER DEFAULT 0,
+                streak      INTEGER DEFAULT 0,
+                max_streak  INTEGER DEFAULT 0,
+                join_date   TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS categories (
+                id      INTEGER PRIMARY KEY AUTOINCREMENT,
+                name    TEXT UNIQUE NOT NULL
+            )
+        """)
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS questions (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
