@@ -59,9 +59,19 @@ class Database:
             )
         """)
 
-        self.conn.commit()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS feedbacks (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id    INTEGER,
+                first_name TEXT DEFAULT '',
+                username   TEXT DEFAULT '',
+                text       TEXT NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_read    INTEGER DEFAULT 0
+            )
+        """)
 
-    def migrate(self):
+        self.conn.commit()
         """Eski bazaga yangi ustunlar qo'shish"""
         cur = self.conn.cursor()
         try:
@@ -95,6 +105,17 @@ class Database:
         q_cats = [r[0] for r in cur2.fetchall()]
         all_cats = list(dict.fromkeys(db_cats + q_cats))
         return all_cats
+
+    def get_categories_with_count(self):
+        cats = self.get_categories()
+        result = []
+        for cat in cats:
+            cur = self.conn.execute(
+                "SELECT COUNT(*) FROM questions WHERE is_active=1 AND category=?", (cat,)
+            )
+            count = cur.fetchone()[0]
+            result.append((cat, count))
+        return result
 
     def add_category(self, name):
         try:
@@ -255,5 +276,24 @@ class Database:
         correct = self.conn.execute("SELECT COUNT(*) FROM answers WHERE is_correct=1").fetchone()[0]
         accuracy = round((correct / answers * 100), 1) if answers > 0 else 0
         return {"users": users, "questions": questions, "answers": answers, "correct": correct, "accuracy": accuracy}
+
+    # ── FEEDBACKS ─────────────────────────────────────────────────────────────
+    def save_feedback(self, user_id, first_name, username, text):
+        self.conn.execute(
+            "INSERT INTO feedbacks (user_id, first_name, username, text) VALUES (?, ?, ?, ?)",
+            (user_id, first_name, username, text)
+        )
+        self.conn.commit()
+
+    def get_feedbacks(self, limit=50):
+        cur = self.conn.execute(
+            "SELECT id, user_id, first_name, username, text, created_at, is_read FROM feedbacks ORDER BY created_at DESC LIMIT ?",
+            (limit,)
+        )
+        return cur.fetchall()
+
+    def mark_feedbacks_read(self):
+        self.conn.execute("UPDATE feedbacks SET is_read=1")
+        self.conn.commit()
 
 db = Database()
