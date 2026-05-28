@@ -6,7 +6,7 @@ class Database:
     def __init__(self):
         self.conn = sqlite3.connect(DB_NAME, check_same_thread=False)
         self.create_tables()
-        self.migrate()
+        
 
     def create_tables(self):
         cur = self.conn.cursor()
