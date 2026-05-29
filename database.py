@@ -150,6 +150,11 @@ class Database:
         cur.execute("SELECT COUNT(*) FROM users WHERE total_ans > 0")
         return cur.fetchone()[0]
 
+    def get_all_user_ids(self):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT user_id FROM users")
+        return [r[0] for r in cur.fetchall()]
+
     # ── CATEGORIES ────────────────────────────────────────────────────────────
     def get_categories(self):
         cur = self.get_conn().cursor()
@@ -189,33 +194,31 @@ class Database:
         """, (text, q_type, options, correct, coins, category, difficulty, explanation, image_id))
         self.add_category(category)
 
-    def get_random_question(self, user_id, category=None):
+    def get_random_question(self, user_id, category=None, q_type=None):
         cur = self.get_conn().cursor()
-        answered = cur.execute if False else None
         cur.execute("SELECT question_id FROM answers WHERE user_id=%s", (user_id,))
         answered_ids = [r[0] for r in cur.fetchall()]
 
+        conditions = ["is_active=1"]
+        params = []
+
         if category and category != "Barchasi":
-            if answered_ids:
-                cur.execute(
-                    "SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE is_active=1 AND category=%s AND id != ALL(%s) ORDER BY RANDOM() LIMIT 1",
-                    (category, answered_ids)
-                )
-            else:
-                cur.execute(
-                    "SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE is_active=1 AND category=%s ORDER BY RANDOM() LIMIT 1",
-                    (category,)
-                )
-        else:
-            if answered_ids:
-                cur.execute(
-                    "SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE is_active=1 AND id != ALL(%s) ORDER BY RANDOM() LIMIT 1",
-                    (answered_ids,)
-                )
-            else:
-                cur.execute(
-                    "SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE is_active=1 ORDER BY RANDOM() LIMIT 1"
-                )
+            conditions.append("category=%s")
+            params.append(category)
+
+        if q_type:
+            conditions.append("q_type=%s")
+            params.append(q_type)
+
+        if answered_ids:
+            conditions.append("id != ALL(%s)")
+            params.append(answered_ids)
+
+        where = " AND ".join(conditions)
+        cur.execute(
+            f"SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1",
+            params
+        )
         return cur.fetchone()
 
     def get_question_by_id(self, q_id):
