@@ -1,5 +1,6 @@
 import os
 import psycopg2
+from psycopg2.extras import RealDictCursor
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -80,31 +81,6 @@ class Database:
             )
         """)
 
-        # IELTS savollar jadvali
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS ielts_questions (
-                id          SERIAL PRIMARY KEY,
-                text        TEXT NOT NULL,
-                ielts_type  TEXT NOT NULL,
-                time_limit  TEXT DEFAULT '20 daqiqa',
-                coins       REAL DEFAULT 10,
-                answers     TEXT DEFAULT '',
-                is_active   INTEGER DEFAULT 1,
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        # IELTS javoblar jadvali
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS ielts_answers (
-                id          SERIAL PRIMARY KEY,
-                user_id     BIGINT,
-                question_id INTEGER,
-                answered_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(user_id, question_id)
-            )
-        """)
-
     # ── USERS ─────────────────────────────────────────────────────────────────
     def add_user(self, user_id, username, first_name):
         cur = self.get_conn().cursor()
@@ -123,10 +99,9 @@ class Database:
         return cur.fetchone()
 
     def add_coins(self, user_id, amount):
-        # Manfiy coinlarga ruxsat (GREATEST olib tashlandi)
         cur = self.get_conn().cursor()
         cur.execute(
-            "UPDATE users SET coins = coins + %s WHERE user_id = %s",
+            "UPDATE users SET coins = GREATEST(0, coins + %s) WHERE user_id = %s",
             (amount, user_id)
         )
 
@@ -219,7 +194,7 @@ class Database:
         """, (text, q_type, options, correct, coins, category, difficulty, explanation, image_id))
         self.add_category(category)
 
-    def get_random_question(self, user_id, category=None, q_type_filter=None):
+    def get_random_question(self, user_id, category=None, q_type=None):
         cur = self.get_conn().cursor()
         cur.execute("SELECT question_id FROM answers WHERE user_id=%s", (user_id,))
         answered_ids = [r[0] for r in cur.fetchall()]
@@ -231,14 +206,9 @@ class Database:
             conditions.append("category=%s")
             params.append(category)
 
-        if q_type_filter:
-            if isinstance(q_type_filter, list):
-                placeholders = ",".join(["%s"] * len(q_type_filter))
-                conditions.append(f"q_type IN ({placeholders})")
-                params.extend(q_type_filter)
-            else:
-                conditions.append("q_type=%s")
-                params.append(q_type_filter)
+        if q_type:
+            conditions.append("q_type=%s")
+            params.append(q_type)
 
         if answered_ids:
             conditions.append("id != ALL(%s)")
@@ -312,93 +282,19 @@ class Database:
     def get_feedbacks(self, limit=50):
         cur = self.get_conn().cursor()
         cur.execute(
-            "SELECT id, user_id, first_name, username, text, created_at, is_read FROM feedbacks WHERE is_read=0 ORDER BY created_at DESC LIMIT %s",
+            "SELECT id, user_id, first_name, username, text, created_at, is_read FROM feedbacks ORDER BY created_at DESC LIMIT %s",
             (limit,)
         )
         return cur.fetchall()
 
     def mark_feedbacks_read(self):
-        # O'qilganlarni bazadan o'chirish
         cur = self.get_conn().cursor()
-        cur.execute("DELETE FROM feedbacks WHERE is_read=1")
         cur.execute("UPDATE feedbacks SET is_read=1")
-
-    def delete_read_feedbacks(self):
-        cur = self.get_conn().cursor()
-        cur.execute("DELETE FROM feedbacks WHERE is_read=1")
-
-    # ── IELTS QUESTIONS ───────────────────────────────────────────────────────
-    def add_ielts_question(self, text, ielts_type, time_limit, coins, answers=""):
-        cur = self.get_conn().cursor()
-        cur.execute("""
-            INSERT INTO ielts_questions (text, ielts_type, time_limit, coins, answers)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (text, ielts_type, time_limit, coins, answers))
-
-    def get_random_ielts_question(self, user_id, ielts_type):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT question_id FROM ielts_answers WHERE user_id=%s", (user_id,))
-        answered_ids = [r[0] for r in cur.fetchall()]
-
-        if answered_ids:
-            cur.execute(
-                "SELECT id, text, ielts_type, time_limit, coins, answers FROM ielts_questions WHERE is_active=1 AND ielts_type=%s AND id != ALL(%s) ORDER BY RANDOM() LIMIT 1",
-                (ielts_type, answered_ids)
-            )
-        else:
-            cur.execute(
-                "SELECT id, text, ielts_type, time_limit, coins, answers FROM ielts_questions WHERE is_active=1 AND ielts_type=%s ORDER BY RANDOM() LIMIT 1",
-                (ielts_type,)
-            )
-        return cur.fetchone()
-
-    def get_ielts_question_by_id(self, q_id):
-        cur = self.get_conn().cursor()
-        cur.execute(
-            "SELECT id, text, ielts_type, time_limit, coins, answers FROM ielts_questions WHERE id=%s",
-            (q_id,)
-        )
-        return cur.fetchone()
-
-    def save_ielts_answer(self, user_id, question_id):
-        cur = self.get_conn().cursor()
-        try:
-            cur.execute("""
-                INSERT INTO ielts_answers (user_id, question_id)
-                VALUES (%s, %s)
-                ON CONFLICT (user_id, question_id) DO NOTHING
-            """, (user_id, question_id))
-        except:
-            pass
-
-    def ielts_already_answered(self, user_id, question_id):
-        cur = self.get_conn().cursor()
-        cur.execute(
-            "SELECT 1 FROM ielts_answers WHERE user_id=%s AND question_id=%s",
-            (user_id, question_id)
-        )
-        return cur.fetchone() is not None
-
-    def get_all_ielts_questions(self, ielts_type=None):
-        cur = self.get_conn().cursor()
-        if ielts_type:
-            cur.execute(
-                "SELECT id, text, ielts_type, time_limit, coins FROM ielts_questions WHERE is_active=1 AND ielts_type=%s ORDER BY id DESC",
-                (ielts_type,)
-            )
-        else:
-            cur.execute(
-                "SELECT id, text, ielts_type, time_limit, coins FROM ielts_questions WHERE is_active=1 ORDER BY id DESC"
-            )
-        return cur.fetchall()
-
-    def delete_ielts_question(self, q_id):
-        cur = self.get_conn().cursor()
-        cur.execute("UPDATE ielts_questions SET is_active=0 WHERE id=%s", (q_id,))
 
     # ── STATS ─────────────────────────────────────────────────────────────────
     def get_stats(self):
         cur = self.get_conn().cursor()
+        users = cur.execute("SELECT COUNT(*) FROM users") or cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM users")
         users = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM questions WHERE is_active=1")
@@ -407,12 +303,7 @@ class Database:
         answers = cur.fetchone()[0]
         cur.execute("SELECT COUNT(*) FROM answers WHERE is_correct=1")
         correct = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM ielts_questions WHERE is_active=1")
-        ielts_q = cur.fetchone()[0]
         accuracy = round((correct / answers * 100), 1) if answers > 0 else 0
-        return {
-            "users": users, "questions": questions, "ielts_questions": ielts_q,
-            "answers": answers, "correct": correct, "accuracy": accuracy
-        }
+        return {"users": users, "questions": questions, "answers": answers, "correct": correct, "accuracy": accuracy}
 
 db = Database()
