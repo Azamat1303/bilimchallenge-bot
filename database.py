@@ -1,6 +1,5 @@
 import os
 import psycopg2
-from psycopg2.extras import RealDictCursor
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -37,8 +36,8 @@ class Database:
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS categories (
-                id      SERIAL PRIMARY KEY,
-                name    TEXT UNIQUE NOT NULL
+                id   SERIAL PRIMARY KEY,
+                name TEXT UNIQUE NOT NULL
             )
         """)
 
@@ -54,9 +53,16 @@ class Database:
                 difficulty  TEXT DEFAULT 'orta',
                 explanation TEXT DEFAULT '',
                 image_id    TEXT DEFAULT '',
+                time_limit  TEXT DEFAULT '',
                 is_active   INTEGER DEFAULT 1
             )
         """)
+
+        # time_limit ustuni mavjud bo'lmasa qo'shamiz
+        try:
+            cur.execute("ALTER TABLE questions ADD COLUMN IF NOT EXISTS time_limit TEXT DEFAULT ''")
+        except:
+            pass
 
         cur.execute("""
             CREATE TABLE IF NOT EXISTS answers (
@@ -100,24 +106,16 @@ class Database:
 
     def add_coins(self, user_id, amount):
         cur = self.get_conn().cursor()
-        cur.execute(
-            "UPDATE users SET coins = GREATEST(0, coins + %s) WHERE user_id = %s",
-            (amount, user_id)
-        )
+        cur.execute("UPDATE users SET coins = coins + %s WHERE user_id = %s", (amount, user_id))
 
     def update_streak(self, user_id, is_correct):
         user = self.get_user(user_id)
-        if not user:
-            return 0
-        current_streak = user[6]
+        if not user: return 0
         cur = self.get_conn().cursor()
         if is_correct:
-            new_streak = current_streak + 1
+            new_streak = user[6] + 1
             max_streak = max(user[7], new_streak)
-            cur.execute(
-                "UPDATE users SET streak=%s, max_streak=%s WHERE user_id=%s",
-                (new_streak, max_streak, user_id)
-            )
+            cur.execute("UPDATE users SET streak=%s, max_streak=%s WHERE user_id=%s", (new_streak, max_streak, user_id))
             return new_streak
         else:
             cur.execute("UPDATE users SET streak=0 WHERE user_id=%s", (user_id,))
@@ -125,10 +123,7 @@ class Database:
 
     def get_leaderboard(self, limit=10):
         cur = self.get_conn().cursor()
-        cur.execute(
-            "SELECT user_id, first_name, username, coins FROM users ORDER BY coins DESC LIMIT %s",
-            (limit,)
-        )
+        cur.execute("SELECT user_id, first_name, username, coins FROM users ORDER BY coins DESC LIMIT %s", (limit,))
         return cur.fetchall()
 
     def get_user_rank(self, user_id):
@@ -160,14 +155,14 @@ class Database:
         cur = self.get_conn().cursor()
         cur.execute("SELECT name FROM categories ORDER BY name")
         db_cats = [r[0] for r in cur.fetchall()]
-        cur.execute("SELECT DISTINCT category FROM questions WHERE is_active=1")
+        cur.execute("SELECT DISTINCT category FROM questions WHERE is_active=1 AND q_type NOT IN ('writing','essay','reading','speaking')")
         q_cats = [r[0] for r in cur.fetchall()]
         return list(dict.fromkeys(db_cats + q_cats))
 
     def get_categories_with_count(self):
         cats = self.get_categories()
-        result = []
         cur = self.get_conn().cursor()
+        result = []
         for cat in cats:
             cur.execute("SELECT COUNT(*) FROM questions WHERE is_active=1 AND category=%s", (cat,))
             count = cur.fetchone()[0]
@@ -186,13 +181,14 @@ class Database:
         cur.execute("DELETE FROM categories WHERE name=%s", (name,))
 
     # ── QUESTIONS ─────────────────────────────────────────────────────────────
-    def add_question(self, text, q_type, options, correct, coins, category, difficulty, explanation, image_id=""):
+    def add_question(self, text, q_type, options, correct, coins, category, difficulty, explanation, image_id="", time_limit=""):
         cur = self.get_conn().cursor()
         cur.execute("""
-            INSERT INTO questions (text, q_type, options, correct, coins, category, difficulty, explanation, image_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (text, q_type, options, correct, coins, category, difficulty, explanation, image_id))
-        self.add_category(category)
+            INSERT INTO questions (text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit))
+        if q_type not in ('writing', 'essay', 'reading', 'speaking'):
+            self.add_category(category)
 
     def get_random_question(self, user_id, category=None, q_type=None):
         cur = self.get_conn().cursor()
@@ -202,13 +198,12 @@ class Database:
         conditions = ["is_active=1"]
         params = []
 
-        if category and category != "Barchasi":
-            conditions.append("category=%s")
-            params.append(category)
-
         if q_type:
             conditions.append("q_type=%s")
             params.append(q_type)
+        elif category and category != "Barchasi":
+            conditions.append("category=%s")
+            params.append(category)
 
         if answered_ids:
             conditions.append("id != ALL(%s)")
@@ -216,7 +211,8 @@ class Database:
 
         where = " AND ".join(conditions)
         cur.execute(
-            f"SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1",
+            f"SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit "
+            f"FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1",
             params
         )
         return cur.fetchone()
@@ -224,15 +220,14 @@ class Database:
     def get_question_by_id(self, q_id):
         cur = self.get_conn().cursor()
         cur.execute(
-            "SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE id=%s",
+            "SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit FROM questions WHERE id=%s",
             (q_id,)
         )
         return cur.fetchone()
 
     def update_question_field(self, q_id, field, value):
-        allowed = ["text", "options", "correct", "coins", "category", "difficulty", "explanation", "image_id"]
-        if field not in allowed:
-            return
+        allowed = ["text", "options", "correct", "coins", "category", "difficulty", "explanation", "image_id", "time_limit"]
+        if field not in allowed: return
         cur = self.get_conn().cursor()
         cur.execute(f"UPDATE questions SET {field}=%s WHERE id=%s", (value, q_id))
 
@@ -257,18 +252,14 @@ class Database:
                 ON CONFLICT (user_id, question_id) DO NOTHING
             """, (user_id, question_id, int(is_correct)))
             cur.execute("""
-                UPDATE users SET total_ans=total_ans+1, correct_ans=correct_ans+%s
-                WHERE user_id=%s
+                UPDATE users SET total_ans=total_ans+1, correct_ans=correct_ans+%s WHERE user_id=%s
             """, (int(is_correct), user_id))
         except:
             pass
 
     def already_answered(self, user_id, question_id):
         cur = self.get_conn().cursor()
-        cur.execute(
-            "SELECT 1 FROM answers WHERE user_id=%s AND question_id=%s",
-            (user_id, question_id)
-        )
+        cur.execute("SELECT 1 FROM answers WHERE user_id=%s AND question_id=%s", (user_id, question_id))
         return cur.fetchone() is not None
 
     # ── FEEDBACKS ─────────────────────────────────────────────────────────────
@@ -287,22 +278,22 @@ class Database:
         )
         return cur.fetchall()
 
+    def delete_feedback(self, fb_id):
+        cur = self.get_conn().cursor()
+        cur.execute("DELETE FROM feedbacks WHERE id=%s", (fb_id,))
+
     def mark_feedbacks_read(self):
         cur = self.get_conn().cursor()
         cur.execute("UPDATE feedbacks SET is_read=1")
+        cur.execute("DELETE FROM feedbacks WHERE is_read=1")
 
     # ── STATS ─────────────────────────────────────────────────────────────────
     def get_stats(self):
         cur = self.get_conn().cursor()
-        users = cur.execute("SELECT COUNT(*) FROM users") or cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM users")
-        users = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM questions WHERE is_active=1")
-        questions = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM answers")
-        answers = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM answers WHERE is_correct=1")
-        correct = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM users"); users = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM questions WHERE is_active=1"); questions = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM answers"); answers = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM answers WHERE is_correct=1"); correct = cur.fetchone()[0]
         accuracy = round((correct / answers * 100), 1) if answers > 0 else 0
         return {"users": users, "questions": questions, "answers": answers, "correct": correct, "accuracy": accuracy}
 
