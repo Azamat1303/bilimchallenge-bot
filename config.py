@@ -4,8 +4,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
 ADMIN_IDS = [6060306988]
 
-# Qiyinlik bo'yicha vaqt (soniyalarda)
-QUESTION_TIME = {"oson": 30, "orta": 60, "qiyin": 90}
+QUESTION_TIME = 30
 
 PENALTY_PERCENT = 0.3
 
