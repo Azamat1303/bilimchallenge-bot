@@ -132,6 +132,7 @@ async def add_listening_options(message: types.Message, state: FSMContext):
 @dp.message(AdminListeningStates.waiting_for_correct)
 async def add_listening_correct(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    # TUZATILGAN QISM: "image_file_id=" kalit so'zi olib tashlandi, faqat qiymat o'zi uzatilyapti
     db.add_listening_question(
         data['audio_file_id'], 
         data['question_text'], 
@@ -227,93 +228,4 @@ async def handle_quiz_answer(callback: types.CallbackQuery, state: FSMContext):
     if user_ans.lower() == correct_ans.lower():
         correct_count += 1
         await callback.answer("To'g'ri! 🎉")
-    else:
-        await callback.answer(f"Xato! To'g'ri javob: {correct_ans} ❌")
-        
-    await state.update_data(current_index=idx + 1, correct_count=correct_count)
-    await callback.message.delete()
-    await send_next_question(callback.message, state)
-
-
-# --- 2. IELTS Listening Test Tizimi ---
-@dp.message(F.text == "🎧 IELTS Listening")
-async def start_listening_quiz(message: types.Message, state: FSMContext):
-    questions = db.get_all_listening_questions()
-    if not questions:
-        await message.answer("Hozircha bazada IELTS Listening savollari yo'q.")
-        return
-        
-    await state.set_state(QuizStates.listening_in_progress)
-    await state.update_data(l_questions=questions, current_index=0, correct_count=0)
-    await send_next_listening(message, state)
-
-async def send_next_listening(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    idx = data['current_index']
-    questions = data['l_questions']
-    
-    if idx >= len(questions):
-        db.update_listening_score(message.from_user.id, data['correct_count'])
-        await message.answer(f"🎧 Listening yakunlandi!\nSiz {len(questions)} ta listening savolidan {data['correct_count']} tasiga to'g'ri javob berdingiz.", reply_markup=get_main_keyboard(message.from_user.id))
-        await state.clear()
-        return
-
-    q = questions[idx]
-    audio_id, q_text, img_id, options_str, correct = q[1], q[2], q[3], q[4], q[5]
-    options = [opt.strip() for opt in options_str.split(",")]
-    
-    # Avval audioni yuboramiz
-    await message.answer_audio(audio=audio_id, caption="🎧 Quyidagi audioni tinglang va savolga javob bering:")
-    
-    # Inline tugmalar yaratish
-    builder = InlineKeyboardBuilder()
-    for opt in options:
-        builder.button(text=opt, callback_data=f"listen_ans_{opt}")
-    builder.adjust(3)
-    
-    # Rasm bormi yoki faqat matnmi tekshiramiz
-    if img_id:
-        await message.answer_photo(photo=img_id, caption=f"❓ Savol {idx+1}:\n\n{q_text}", reply_markup=builder.as_markup())
-    else:
-        await message.answer(f"❓ Savol {idx+1}:\n\n{q_text}", reply_markup=builder.as_markup())
-
-@dp.callback_query(QuizStates.listening_in_progress, F.data.startswith("listen_ans_"))
-async def handle_listening_answer(callback: types.CallbackQuery, state: FSMContext):
-    user_ans = callback.data.replace("listen_ans_", "")
-    data = await state.get_data()
-    idx = data['current_index']
-    q = data['l_questions'][idx]
-    correct_ans = q[5]
-    
-    correct_count = data['correct_count']
-    if user_ans.lower() == correct_ans.lower():
-        correct_count += 1
-        await callback.answer("To'g'ri javob! 🎯")
-    else:
-        await callback.answer(f"Xato! To'g'ri javob: {correct_ans} 🛑")
-        
-    await state.update_data(current_index=idx + 1, correct_count=correct_count)
-    await callback.message.delete()
-    await send_next_listening(callback.message, state)
-
-
-# --- 3. Reyting tizimi ---
-@dp.message(F.text == "📊 Reyting")
-async def show_leaderboard(message: types.Message):
-    leaderboard = db.get_leaderboard()
-    if not leaderboard:
-        await message.answer("Reyting ro'yxati bo'sh.")
-        return
-        
-    text = "🏆 **Top 10 Foydalanuvchilar (Umumiy ballar):**\n\n"
-    for i, user in enumerate(leaderboard, 1):
-        text += f"{i}. {user[0]} — {user[1]} ball\n"
-    await message.answer(text)
-
-async def main():
-    db.init_db()
-    print("INFO: Bot started successfully!")
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+    else
