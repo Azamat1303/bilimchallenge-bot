@@ -1,25 +1,21 @@
-# ═══════════════════════════════════════════════════
-#         BilimChallenge Bot — Konfiguratsiya
-# ═══════════════════════════════════════════════════
+import os
 
-# 1. @BotFather dan olgan tokeningiz
-BOT_TOKEN = "8930806821:AAGQTTeZow7y1bX_FfLhrRPj89XwcT8gDFM"
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 
-# 2. Admin Telegram ID raqami
 ADMIN_IDS = [6060306988]
 
-# 3. Savol vaqti (soniyalarda)
-#    Masalan: 30 = 30 soniya, 60 = 1 daqiqa
-QUESTION_TIME = 30
+# Qiyinlik bo'yicha vaqt (soniyalarda)
+QUESTION_TIME = {"oson": 30, "orta": 60, "qiyin": 90}
 
-# 4. Jarima foizi (noto'g'ri javob yoki vaqt tugaganda)
-#    0.3 = 30%, 0.5 = 50%, 0.1 = 10%
 PENALTY_PERCENT = 0.3
 
-# 5. Streak bonuslari
-#    Format: {ketma-ket_son: bonus_koeffitsient}
+TIMEOUT_PENALTY = 0.45
+
 STREAK_BONUSES = {
-    3:  1.5,   # 3 ta ketma-ket = x1.5
-    5:  2.0,   # 5 ta ketma-ket = x2.0
-    10: 3.0,   # 10 ta ketma-ket = x3.0
+    3:  1.5,
+    5:  2.0,
+    10: 3.0,
 }
+
+GROQ_API_KEY = "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"
+GROQ_MODEL = "llama-3.3-70b-versatile"
