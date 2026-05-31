@@ -17,7 +17,7 @@ dp = Dispatcher(storage=MemoryStorage())
 
 DIFFICULTY_ICONS = {"oson": "🟢", "orta": "🟡", "qiyin": "🔴"}
 DIFFICULTY_NAMES = {"oson": "Oson", "orta": "O'rta", "qiyin": "Qiyin"}
-IELTS_TYPES = ["writing", "essay", "reading", "speaking"]
+IELTS_TYPES = ["writing", "essay", "reading", "speaking", "listening"]
 
 # ── Stikerlar ─────────────────────────────────────────────────────────────────
 STICKER_QUESTION = "CAACAgQAAxkBAAFK2GFqGBZkvOQYIqxuYRxOg8yZ_kGpCQACLhMAAqtUsFGayERH0PRbYTsE"
@@ -89,6 +89,11 @@ class UserStates(StatesGroup):
     sending_feedback = State()
     answering_premium = State()
     answering_ielts = State()
+    ai_chat = State()
+    ai_chat_confirm_debt = State()
+
+ILLEGAL_WORDS = ["bomb", "portlat", "o'ldur", "qotil", "terror", "drug", "narkotik", "hack", "взлом", "бомба"]
+AI_COST_PER_15_CHARS = 1  # har 15 belgi uchun 1 coin
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def is_admin(uid): return uid in ADMIN_IDS
@@ -98,6 +103,7 @@ def main_menu(uid):
         [KeyboardButton(text="🎯 Savol olish"), KeyboardButton(text="🏆 Reyting")],
         [KeyboardButton(text="👤 Profilim"), KeyboardButton(text="ℹ️ Yordam")],
         [KeyboardButton(text="📝 Taklif/Shikoyat"), KeyboardButton(text="🎓 IELTS")],
+        [KeyboardButton(text="🤖 AI Chat")],
     ]
     if is_admin(uid): buttons.append([KeyboardButton(text="⚙️ Admin Panel")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
@@ -618,19 +624,389 @@ async def skip_premium(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(F.text == "🎓 IELTS")
 async def ielts_menu(message: types.Message):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📝 Writing", callback_data="ielts_writing")],
-        [InlineKeyboardButton(text="✍️ Insho (Essay)", callback_data="ielts_essay")],
-        [InlineKeyboardButton(text="📖 Reading", callback_data="ielts_reading")],
-        [InlineKeyboardButton(text="🗣 Speaking", callback_data="ielts_speaking")],
+        [InlineKeyboardButton(text="📝 Writing", callback_data="ielts_writing"),
+         InlineKeyboardButton(text="✍️ Essay", callback_data="ielts_essay")],
+        [InlineKeyboardButton(text="📖 Reading", callback_data="ielts_reading"),
+         InlineKeyboardButton(text="🗣 Speaking", callback_data="ielts_speaking")],
+        [InlineKeyboardButton(text="🎧 Listening", callback_data="ielts_listening")],
     ])
     await message.answer(
         "🎓 <b>IELTS bo'limlari</b>\n\n"
-        "AI yordamida mashq qiling va batafsil fikr-mulohaza oling!",
+        "AI yordamida mashq qiling va batafsil fikr-mulohaza oling!\n\n"
+        "📝 Writing — yozma topshiriq\n"
+        "✍️ Essay — akademik insho\n"
+        "📖 Reading — o'qib tushunish\n"
+        "🗣 Speaking — gapirish (ovoz)\n"
+        "🎧 Listening — eshitib tushunish",
         parse_mode="HTML", reply_markup=keyboard
     )
 
 @dp.callback_query(F.data.startswith("ielts_"))
 async def ielts_section(callback: types.CallbackQuery, state: FSMContext):
+    section = callback.data[6:]
+    question = db.get_random_question(callback.from_user.id, q_type=section)
+    if not question:
+        # Barcha savollar tugagan — yana boshidan
+        question = db.get_any_question_by_type(section)
+        if not question:
+            await callback.answer(f"😔 Bu bo'limda hozircha savollar yo'q!", show_alert=True)
+            return
+
+    q_id, q_text, q_type, options, correct, coins, cat, diff, explanation, image_id, time_limit = question
+    await state.set_state(UserStates.answering_ielts)
+    await state.update_data(question_id=q_id, q_type=q_type, coins=coins, section=section)
+
+    time_note = f"\n⏰ <b>Tavsiya etilgan vaqt:</b> {time_limit}" if time_limit else ""
+    icons = {"writing": "📝", "essay": "✍️", "reading": "📖", "speaking": "🗣", "listening": "🎧"}
+    icon = icons.get(section, "🎓")
+    header = f"{icon} <b>{section.upper()}</b>  🆔 #{q_id}{time_note}\n\n❓ <b>{q_text}</b>"
+
+    if section == "reading":
+        header += "\n\n📌 <i>Javoblarni qatorma-qator yozing (har bir javob alohida qatorda)</i>"
+    elif section == "speaking":
+        header += "\n\n🎙 <i>Javobingizni ovozli xabar yoki matn sifatida yuboring</i>"
+    elif section == "listening":
+        header += "\n\n🎧 <i>Ovozli xabar yuboring (audioga javob) yoki matn yozing</i>"
+    else:
+        header += "\n\n✍️ <i>Javobingizni yozing (qanchalik to'liq bo'lsa, shunchalik yaxshi)</i>"
+
+    if image_id:
+        try: await bot.send_photo(callback.message.chat.id, photo=image_id, caption=header, parse_mode="HTML")
+        except: await callback.message.answer(header, parse_mode="HTML")
+    else:
+        await callback.message.answer(header, parse_mode="HTML")
+
+    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏭ O'tkazib yuborish", callback_data=f"skip_ielts_{section}")]
+    ])
+    await callback.message.answer("👆 Javob yuboring:", reply_markup=skip_kb)
+    await callback.answer()
+
+@dp.message(UserStates.answering_ielts)
+async def handle_ielts_answer(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    q_id = data["question_id"]
+    q_type = data["q_type"]
+    coins = data["coins"]
+    section = data["section"]
+    user_id = message.from_user.id
+
+    IELTS_ALL = ["writing", "essay", "reading", "speaking", "listening"]
+
+    if section in ["speaking", "listening"]:
+        if message.voice:
+            await message.answer("⏳ Tahlil qilinmoqda...")
+            voice_note = f"Foydalanuvchi {section} bo'yicha ovozli xabar yubordi."
+            if section == "speaking":
+                prompt = f"""Siz IELTS Speaking baholovchisiz. O'zbek tilida baholang:
+
+Kontekst: {voice_note}
+
+1. Talaffuz va ravonlik
+2. Leksika boyligi  
+3. Grammatika
+4. Mavzuga aloqadorlik
+
+Band Score: X.X/9.0
+Tavsiyalar bering."""
+            else:
+                prompt = f"""Siz IELTS Listening baholovchisiz. O'zbek tilida baholang:
+
+Kontekst: {voice_note}
+
+Listening mashqi uchun umumiy tavsiyalar bering va qanday yaxshilash mumkinligini ayting.
+
+Band Score: X.X/9.0"""
+            analysis = await groq_analyze(prompt)
+        elif message.text:
+            await message.answer("⏳ AI tahlil qilmoqda...")
+            if section == "speaking":
+                prompt = f"Siz IELTS Speaking baholovchisiz. Quyidagi matnni Speaking sifatida o'zbek tilida baholang:\n\n{message.text}\n\nBand Score: X.X/9.0. Tavsiyalar bering."
+            else:
+                prompt = f"Siz IELTS Listening baholovchisiz. Foydalanuvchi quyidagi javobni yozdi:\n\n{message.text}\n\nListening ko'nikmalarini yaxshilash bo'yicha o'zbek tilida tavsiya bering. Band Score: X.X/9.0"
+            analysis = await groq_analyze(prompt)
+        else:
+            await message.answer(f"🎙 Ovozli xabar yoki matn yuboring!")
+            return
+    elif section == "reading":
+        if not message.text:
+            await message.answer("✍️ Matn yuboring!")
+            return
+        user_text = message.text
+        question = db.get_question_by_id(q_id)
+        correct_answers = question[4] if question else ""
+        user_answers = [a.strip().lower() for a in user_text.split("\n") if a.strip()]
+        correct_list = [a.strip().lower() for a in correct_answers.split("\n") if a.strip()]
+        correct_count = sum(1 for ans in user_answers if ans in correct_list)
+        total = len(correct_list)
+        score = round((correct_count / total * 9), 1) if total > 0 else 0
+        analysis = f"📖 <b>Reading natijasi</b>\n\n✅ To'g'ri: <b>{correct_count}/{total}</b>\nBand Score: <b>{score}/9.0</b>"
+        if correct_count < total:
+            wrong = [a for a in correct_list if a not in user_answers]
+            analysis += "\n\n❌ To'g'ri javoblar:\n" + "\n".join([f"• {w}" for w in wrong])
+        earned = round(coins * (correct_count / total), 1) if total > 0 else 0
+        db.add_coins(user_id, earned)
+        analysis += f"\n\n💰 +{earned} coin"
+        await message.answer(analysis, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}", callback_data=f"ielts_{section}")]
+            ]))
+        await state.clear()
+        return
+    else:
+        if not message.text:
+            await message.answer("✍️ Matn yuboring!")
+            return
+        user_text = message.text
+        await message.answer("⏳ AI tahlil qilmoqda...")
+
+        if section == "writing":
+            prompt = f"""Siz IELTS Writing baholovchisiz. Quyidagi Writing javobini O'ZBEK TILIDA baholang:
+
+Javob:
+{user_text}
+
+Quyidagilarni baholang:
+1. Task Achievement
+2. Coherence and Cohesion
+3. Lexical Resource
+4. Grammatical Range and Accuracy
+
+Har mezon uchun qisqa izoh.
+Band Score: X.X/9.0
+3 ta yaxshilash tavsiyasi."""
+
+        elif section == "essay":
+            prompt = f"""Siz akademik insho mutaxassisisiz. Inshoni O'ZBEK TILIDA tahlil qiling:
+
+Insho:
+{user_text}
+
+1. Kirish (thesis)
+2. Argumentlar
+3. Xulosa
+4. Akademik uslub
+5. Grammatika
+
+Umumiy baho: X/10
+5 ta tavsiya bering."""
+
+        analysis = await groq_analyze(prompt)
+
+    # Coin bering va saqlash
+    db.add_coins(user_id, coins)
+    await message.answer(
+        f"🤖 <b>AI Tahlil:</b>\n\n{analysis}\n\n💰 +{coins} coin mashq uchun!",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}", callback_data=f"ielts_{section}")]
+        ])
+    )
+    await state.clear()
+
+@dp.callback_query(F.data.startswith("skip_ielts_"))
+async def skip_ielts(callback: types.CallbackQuery, state: FSMContext):
+    section = callback.data[11:]
+    await state.clear()
+    try: await callback.message.edit_reply_markup(reply_markup=None)
+    except: pass
+    await callback.message.answer("⏭ O'tkazib yuborildi.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}", callback_data=f"ielts_{section}")]
+        ]))
+    await callback.answer()
+
+# ── AI CHAT ───────────────────────────────────────────────────────────────────
+BUSY_STATES = [
+    UserStates.answering_open,
+    UserStates.answering_premium,
+    UserStates.answering_ielts,
+]
+
+@dp.message(F.text == "🤖 AI Chat")
+async def ai_chat_start(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    # Savol yoki IELTS paytida ishlamaydi
+    busy = [UserStates.answering_open.state, UserStates.answering_premium.state, UserStates.answering_ielts.state]
+    if current_state in busy:
+        await message.answer("⚠️ Avval joriy savolingizga javob bering yoki o'tkazib yuboring!")
+        return
+
+    user = db.get_user(message.from_user.id)
+    coins = round(user[3], 1) if user else 0
+
+    if coins <= 0:
+        await message.answer(
+            f"❌ <b>AI Chat ishlamaydi!</b>\n\n"
+            f"💰 Sizning coinlaringiz: <b>{coins}</b>\n\n"
+            f"Avval savollarga javob berib coin to'plang!",
+            parse_mode="HTML"
+        )
+        return
+
+    await state.set_state(UserStates.ai_chat)
+    await state.update_data(chat_history=[])
+    await message.answer(
+        f"🤖 <b>AI Chat</b>\n\n"
+        f"💰 Coinlaringiz: <b>{coins}</b>\n"
+        f"💸 Narx: har 15 belgi = 1 coin\n\n"
+        f"Savolingizni yozing!\n"
+        f"<i>Chiqish uchun /stop yozing</i>",
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="🚪 AI Chatdan chiqish")]],
+            resize_keyboard=True
+        )
+    )
+
+@dp.message(F.text == "🚪 AI Chatdan chiqish")
+async def ai_chat_exit(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("👋 AI Chatdan chiqdingiz!", reply_markup=main_menu(message.from_user.id))
+
+@dp.message(Command("stop"))
+async def stop_cmd(message: types.Message, state: FSMContext):
+    current_state = await state.get_state()
+    if current_state == UserStates.ai_chat.state:
+        await state.clear()
+        await message.answer("👋 AI Chatdan chiqdingiz!", reply_markup=main_menu(message.from_user.id))
+
+@dp.message(UserStates.ai_chat)
+async def handle_ai_chat(message: types.Message, state: FSMContext):
+    if not message.text:
+        await message.answer("✍️ Faqat matn yuboring!")
+        return
+
+    user_id = message.from_user.id
+    user_text = message.text.strip()
+
+    # Qonunbuzarlik tekshiruvi
+    text_lower = user_text.lower()
+    for word in ILLEGAL_WORDS:
+        if word in text_lower:
+            penalty = 10
+            db.add_coins(user_id, -penalty)
+            user = db.get_user(user_id)
+            coins_left = round(user[3], 1) if user else 0
+            await message.answer(
+                f"🚫 <b>JARIMA!</b>\n\n"
+                f"Siz qonunbuzarlikka doir so'rov yubordingiz.\n"
+                f"❌ -{penalty} coin jarima.\n"
+                f"💰 Qolgan coinlar: <b>{coins_left}</b>",
+                parse_mode="HTML"
+            )
+            return
+
+    # Coin tekshiruvi
+    user = db.get_user(user_id)
+    coins = round(user[3], 1) if user else 0
+
+    if coins <= 0:
+        await state.clear()
+        await message.answer(
+            "❌ <b>Coinlaringiz tugadi!</b>\n\nSavollarga javob berib coin to'plang.",
+            parse_mode="HTML", reply_markup=main_menu(user_id)
+        )
+        return
+
+    data = await state.get_data()
+    chat_history = data.get("chat_history", [])
+
+    # AI dan javob olish
+    await message.answer("⏳ AI o'ylayapti...")
+
+    # Tarix bilan prompt
+    messages = [
+        {"role": "system", "content": "Siz BilimChallenge botining yordamchi AI sisiz. O'zbek tilida qisqa, foydali va do'stona javob bering. Qonunbuzarlik, zararli yoki noetik so'rovlarga javob bermang."}
+    ]
+    for h in chat_history[-6:]:  # Oxirgi 6 ta xabar (kontekst)
+        messages.append(h)
+    messages.append({"role": "user", "content": user_text})
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                json={"model": GROQ_MODEL, "messages": messages, "max_tokens": 800, "temperature": 0.7}
+            ) as resp:
+                resp_data = await resp.json()
+                ai_reply = resp_data["choices"][0]["message"]["content"]
+    except Exception as e:
+        await message.answer(f"⚠️ AI xatolik: {str(e)}")
+        return
+
+    # Coin hisoblash: har 15 belgi = 1 coin
+    reply_len = len(ai_reply)
+    cost = max(1, reply_len // 15)
+
+    if coins < cost:
+        # Yetmaydi — qarz olsinmi?
+        await state.update_data(
+            pending_reply=ai_reply,
+            pending_cost=cost,
+            chat_history=chat_history
+        )
+        await state.set_state(UserStates.ai_chat_confirm_debt)
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Ha, qarz olaman", callback_data="ai_debt_yes")],
+            [InlineKeyboardButton(text="❌ Yo'q, kerak emas", callback_data="ai_debt_no")],
+        ])
+        await message.answer(
+            f"⚠️ <b>Coin yetarli emas!</b>\n\n"
+            f"💰 Sizda: <b>{coins}</b> coin\n"
+            f"💸 Kerak: <b>{cost}</b> coin\n"
+            f"📉 Qarz: <b>{cost - coins}</b> coin\n\n"
+            f"Qarz olishni xohlaysizmi?",
+            parse_mode="HTML", reply_markup=keyboard
+        )
+        return
+
+    # Coin yetarli — to'lov
+    db.add_coins(user_id, -cost)
+    user = db.get_user(user_id)
+    coins_left = round(user[3], 1) if user else 0
+
+    # Tarixni yangilash
+    chat_history.append({"role": "user", "content": user_text})
+    chat_history.append({"role": "assistant", "content": ai_reply})
+    await state.update_data(chat_history=chat_history)
+    await state.set_state(UserStates.ai_chat)
+
+    await message.answer(
+        f"🤖 {ai_reply}\n\n💰 -{cost} coin  |  Qoldi: <b>{coins_left}</b>",
+        parse_mode="HTML"
+    )
+
+@dp.callback_query(F.data == "ai_debt_yes")
+async def ai_debt_yes(callback: types.CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    ai_reply = data.get("pending_reply", "")
+    cost = data.get("pending_cost", 0)
+    chat_history = data.get("chat_history", [])
+    user_id = callback.from_user.id
+
+    db.add_coins(user_id, -cost)
+    user = db.get_user(user_id)
+    coins_left = round(user[3], 1) if user else 0
+
+    chat_history.append({"role": "assistant", "content": ai_reply})
+    await state.update_data(chat_history=chat_history)
+    await state.set_state(UserStates.ai_chat)
+
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer(
+        f"🤖 {ai_reply}\n\n💰 -{cost} coin  |  Qoldi: <b>{coins_left}</b>",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "ai_debt_no")
+async def ai_debt_no(callback: types.CallbackQuery, state: FSMContext):
+    await callback.message.edit_reply_markup(reply_markup=None)
+    await callback.message.answer("❌ Bekor qilindi. Savol bering yoki chatdan chiqing.")
+    await state.set_state(UserStates.ai_chat)
+    await callback.answer()
     section = callback.data[6:]
     question = db.get_random_question(callback.from_user.id, q_type=section)
     if not question:
@@ -974,6 +1350,7 @@ async def add_question_start(message: types.Message, state: FSMContext):
         [InlineKeyboardButton(text="✍️ IELTS Essay", callback_data="qtype_essay")],
         [InlineKeyboardButton(text="📖 IELTS Reading", callback_data="qtype_reading")],
         [InlineKeyboardButton(text="🗣 IELTS Speaking", callback_data="qtype_speaking")],
+        [InlineKeyboardButton(text="🎧 IELTS Listening", callback_data="qtype_listening")],
     ])
     await message.answer("📌 Savol turini tanlang:", reply_markup=keyboard)
 
