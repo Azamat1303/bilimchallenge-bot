@@ -206,6 +206,15 @@ class Database:
         cur.execute(f"SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1", params)
         return cur.fetchone()
 
+    def get_any_question_by_type(self, q_type):
+        """Answered bo'lsa ham qaytaradi — IELTS uchun"""
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit FROM questions WHERE is_active=1 AND q_type=%s ORDER BY RANDOM() LIMIT 1",
+            (q_type,)
+        )
+        return cur.fetchone()
+
     def get_question_by_id(self, q_id):
         cur = self.get_conn().cursor()
         cur.execute("SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit FROM questions WHERE id=%s", (q_id,))
