@@ -239,14 +239,13 @@ active_timers = {}
 DIFFICULTY_TIME = {"oson": 30, "orta": 60, "qiyin": 90}
 
 async def send_question(message, user_id, state, category, mode="all"):
-    if mode == "test": q_type_filter = ["test"]
-    elif mode == "open": q_type_filter = ["open"]
-    else: q_type_filter = ["test", "open"]
-
-    question = None
-    for qt in q_type_filter:
-        question = db.get_random_question(user_id, category, q_type=qt)
-        if question: break
+    if mode == "test":
+        question = db.get_random_question(user_id, category, q_type="test")
+    elif mode == "open":
+        question = db.get_random_question(user_id, category, q_type="open")
+    else:
+        # Aralash — test, open va premium hammasidan (q_type=None = IELTS dan tashqari hammasi)
+        question = db.get_random_question(user_id, category, q_type=None)
 
     if not question:
         cats = db.get_categories()
