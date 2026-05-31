@@ -197,8 +197,8 @@ class Database:
                 conditions.append("q_type=%s")
                 params.append(q_type)
         else:
-            # Oddiy savollar uchun IELTS turlarini chiqarmaymiz
-            conditions.append("q_type NOT IN ('writing','essay','reading','speaking','listening','premium')")
+            # Oddiy savollar uchun faqat IELTS turlarini chiqarmaymiz (premium qoladi)
+            conditions.append("q_type NOT IN ('writing','essay','reading','speaking','listening')")
         if answered_ids:
             conditions.append("id != ALL(%s)")
             params.append(answered_ids)
