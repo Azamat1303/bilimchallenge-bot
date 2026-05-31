@@ -262,6 +262,12 @@ async def send_question(message, user_id, state, category, mode="all"):
         return
 
     q_id, q_text, q_type, options, correct, coins, cat, difficulty, explanation, image_id, time_limit = question
+
+    # Premium savol kelsa — premium handlerga yo'naltir
+    if q_type == "premium":
+        await send_premium_question(message, user_id, state, category)
+        return
+
     diff_icon = DIFFICULTY_ICONS.get(difficulty, "🟡")
     diff_name = DIFFICULTY_NAMES.get(difficulty, "O'rta")
 
