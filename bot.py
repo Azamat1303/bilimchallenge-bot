@@ -746,6 +746,7 @@ Band Score: X.X/9.0"""
             analysis += "\n\n❌ To'g'ri javoblar:\n" + "\n".join([f"• {w}" for w in wrong])
         earned = round(coins * (correct_count / total), 1) if total > 0 else 0
         db.add_coins(user_id, earned)
+        db.save_answer(user_id, q_id, correct_count == total)  # Qayta chiqmasligi uchun
         analysis += f"\n\n💰 +{earned} coin"
         await message.answer(analysis, parse_mode="HTML",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -793,8 +794,9 @@ Umumiy baho: X/10
 
         analysis = await groq_analyze(prompt)
 
-    # Coin bering va saqlash
+    # Coin bering va savolni answered deb belgilash
     db.add_coins(user_id, coins)
+    db.save_answer(user_id, q_id, True)  # Qayta chiqmasligi uchun
     await message.answer(
         f"🤖 <b>AI Tahlil:</b>\n\n{analysis}\n\n💰 +{coins} coin mashq uchun!",
         parse_mode="HTML",
@@ -807,6 +809,7 @@ Umumiy baho: X/10
 @dp.callback_query(F.data.startswith("skip_ielts_"))
 async def skip_ielts(callback: types.CallbackQuery, state: FSMContext):
     section = callback.data[11:]
+    # O'tkazilgan savol qayta chiqishi mumkin (save_answer chaqirmaymiz)
     await state.clear()
     try: await callback.message.edit_reply_markup(reply_markup=None)
     except: pass
@@ -1040,125 +1043,6 @@ async def ai_debt_no(callback: types.CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="⏭ O'tkazib yuborish", callback_data=f"skip_ielts_{section}")]
     ])
     await callback.message.answer("👆 Javob yuboring:", reply_markup=skip_kb)
-    await callback.answer()
-
-@dp.message(UserStates.answering_ielts)
-async def handle_ielts_answer(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    q_id = data["question_id"]
-    q_type = data["q_type"]
-    coins = data["coins"]
-    section = data["section"]
-    user_id = message.from_user.id
-
-    # Speaking: faqat ovozli xabar
-    if section == "speaking":
-        if not message.voice:
-            await message.answer("🎙 Iltimos, ovozli xabar yuboring!")
-            return
-        # Ovozni matnga o'girish (Groq Whisper yo'q, matn xabar so'raymiz)
-        await message.answer("⏳ Tahlil qilinmoqda...")
-        # Speaking uchun foydalanuvchi matn ham yuborishi mumkin
-        voice_note = "Foydalanuvchi ovozli xabar yubordi (transcription unavailable). Umumiy Speaking mashg'ulot uchun baholang."
-        prompt = f"""Siz IELTS Speaking baholovchisiz. Quyidagi Speaking javobini o'zbek tilida baholang:
-
-Kontekst: {voice_note}
-
-Quyidagilarni baholang va o'zbek tilida tushuntiring:
-1. Talaffuz va ravonlik
-2. Leksika boyligi
-3. Grammatika to'g'riligi
-4. Mavzu bo'yicha aloqadorlik
-
-Band Score: X.X/9.0 formatida bering.
-
-Umumiy tahlil va tavsiyalar bering."""
-        analysis = await groq_analyze(prompt)
-    else:
-        if not message.text:
-            await message.answer("✍️ Iltimos, matn yuboring!")
-            return
-        user_text = message.text
-        await message.answer("⏳ AI tahlil qilmoqda...")
-
-        if section == "writing":
-            prompt = f"""Siz IELTS Writing baholovchisiz. Quyidagi Writing javobini o'zbek tilida baholang:
-
-Javob matni:
-{user_text}
-
-Quyidagilarni baholang:
-1. Task Achievement (vazifani bajarish)
-2. Coherence and Cohesion (mantiqiy bog'liqlik)
-3. Lexical Resource (lug'at boyligi)
-4. Grammatical Range and Accuracy (grammatika)
-
-Har bir mezon uchun qisqacha izoh bering.
-Band Score: X.X/9.0 formatida bering.
-Yaxshilash uchun 3 ta konkret tavsiya bering."""
-
-        elif section == "essay":
-            prompt = f"""Siz akademik insho mutaxassisisiz. Quyidagi inshoni o'zbek tilida chuqur tahlil qiling:
-
-Insho matni:
-{user_text}
-
-Quyidagi mezonlar bo'yicha baholang:
-1. Kirish qismi (thesis statement aniq va kuchli)
-2. Tananing argumentlari (mantiq, dalillar, misолlar)
-3. Xulosaning samaradorligi
-4. Akademik uslub va lug'at
-5. Grammatika va tinish belgilari
-
-Har bir qism bo'yicha aniq izoh bering.
-Umumiy baho: X/10
-Yaxshilash uchun 5 ta muhim tavsiya bering."""
-
-        elif section == "reading":
-            question = db.get_question_by_id(q_id)
-            correct_answers = question[4] if question else ""
-            user_answers = [a.strip().lower() for a in user_text.split("\n") if a.strip()]
-            correct_list = [a.strip().lower() for a in correct_answers.split("\n") if a.strip()]
-            correct_count = sum(1 for ans in user_answers if ans in correct_list)
-            total = len(correct_list)
-            score = round((correct_count / total * 9), 1) if total > 0 else 0
-            analysis = f"📖 <b>Reading natijasi</b>\n\n✅ To'g'ri: <b>{correct_count}/{total}</b>\nBand Score: <b>{score}/9.0</b>"
-            if correct_count < total:
-                wrong = [a for a in correct_list if a not in user_answers]
-                analysis += f"\n\n❌ O'tkazib yuborilgan javoblar:\n" + "\n".join([f"• {w}" for w in wrong])
-            earned = round(coins * (correct_count / total), 1) if total > 0 else 0
-            db.add_coins(user_id, earned)
-            analysis += f"\n\n💰 +{earned} coin"
-            await message.answer(analysis, parse_mode="HTML",
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}", callback_data=f"ielts_{section}")]
-                ]))
-            await state.clear()
-            return
-
-        analysis = await groq_analyze(prompt)
-
-    # Coin bering
-    db.add_coins(user_id, coins)
-    await message.answer(
-        f"🤖 <b>AI Tahlil:</b>\n\n{analysis}\n\n💰 +{coins} coin mashq uchun!",
-        parse_mode="HTML",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}", callback_data=f"ielts_{section}")]
-        ])
-    )
-    await state.clear()
-
-@dp.callback_query(F.data.startswith("skip_ielts_"))
-async def skip_ielts(callback: types.CallbackQuery, state: FSMContext):
-    section = callback.data[11:]
-    await state.clear()
-    try: await callback.message.edit_reply_markup(reply_markup=None)
-    except: pass
-    await callback.message.answer("⏭ O'tkazib yuborildi.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}", callback_data=f"ielts_{section}")]
-        ]))
     await callback.answer()
 
 # ── REYTING ───────────────────────────────────────────────────────────────────
