@@ -646,11 +646,11 @@ async def ielts_section(callback: types.CallbackQuery, state: FSMContext):
     section = callback.data[6:]
     question = db.get_random_question(callback.from_user.id, q_type=section)
     if not question:
-        # Barcha savollar tugagan — yana boshidan
-        question = db.get_any_question_by_type(section)
-        if not question:
-            await callback.answer(f"😔 Bu bo'limda hozircha savollar yo'q!", show_alert=True)
-            return
+        await callback.answer(
+            f"🎉 Bu bo'limdagi barcha savollarga javob berdingiz! Tez orada yangilari qo'shiladi.",
+            show_alert=True
+        )
+        return
 
     q_id, q_text, q_type, options, correct, coins, cat, diff, explanation, image_id, time_limit = question
     await state.set_state(UserStates.answering_ielts)
@@ -794,11 +794,43 @@ Umumiy baho: X/10
 
         analysis = await groq_analyze(prompt)
 
-    # Coin bering va savolni answered deb belgilash
-    db.add_coins(user_id, coins)
-    db.save_answer(user_id, q_id, True)  # Qayta chiqmasligi uchun
+    # Band score dan coin hisoblash — AI javobidan score qidirish
+    import re
+    band_score = None
+    # Turli formatlarni qidirish: 7.5/9.0, 7.5/9, 7/9, Band: 7.5 va h.k.
+    patterns = [
+        r'Band\s*Score[:\s]+(\d+\.?\d*)',
+        r'(\d+\.?\d*)\s*/\s*9(?:\.0)?',
+        r'(\d+\.?\d*)\s*ball',
+        r'baho[:\s]+(\d+\.?\d*)',
+        r'score[:\s]+(\d+\.?\d*)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, analysis, re.IGNORECASE)
+        if match:
+            try:
+                band_score = float(match.group(1))
+                band_score = min(band_score, 9.0)
+                break
+            except:
+                pass
+
+    if band_score is not None:
+        earned = round(coins * (band_score / 9.0), 1)
+    else:
+        earned = round(coins * 0.5, 1)  # Agar score topilmasa 50%
+
+    # Coin va answered saqlash
+    db.add_coins(user_id, earned)
+    try:
+        db.save_answer(user_id, q_id, True)
+    except Exception as e:
+        logging.warning(f"save_answer error: {e}")
+
+    score_text = f"\n🎯 Band Score: <b>{band_score}/9.0</b>" if band_score is not None else ""
     await message.answer(
-        f"🤖 <b>AI Tahlil:</b>\n\n{analysis}\n\n💰 +{coins} coin mashq uchun!",
+        f"🤖 <b>AI Tahlil:</b>\n\n{analysis}"
+        f"{score_text}\n\n💰 +{earned} coin (max {coins})",
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}", callback_data=f"ielts_{section}")]
