@@ -70,6 +70,7 @@ def get_rank_sticker(rank):
 class AdminStates(StatesGroup):
     waiting_question_type = State()
     waiting_question_text = State()
+    confirm_question_text = State()    # ← YANGI QO'SHILGAN STATE
     waiting_options = State()
     waiting_correct_answer = State()
     waiting_coin_reward = State()
