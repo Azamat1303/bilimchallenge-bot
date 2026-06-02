@@ -9,7 +9,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from database import db
-from config import BOT_TOKEN, ADMIN_IDS, QUESTION_TIME, PENALTY_PERCENT, TIMEOUT_PENALTY, STREAK_BONUSES, GROQ_API_KEY, GROQ_MODEL
+from config import BOT_TOKEN, ADMIN_IDS, QUESTION_TIME, PENALTY_PERCENT, TIMEOUT_PENALTY, STREAK_BONUSES, GROQ_API_KEY, GROQ_MODEL, GEMINI_API_KEY
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -148,23 +148,30 @@ def check_open_answer(user_ans, correct_ans):
     return user_clean in answers_list
 
 async def groq_analyze(prompt: str) -> str:
-    """Groq API orqali matn tahlili"""
+    """Gemini API orqali matn tahlili"""
     try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-                json={
-                    "model": GROQ_MODEL,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 1000,
-                    "temperature": 0.7
-                }
+                url,
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": prompt}]}]}
             ) as resp:
                 data = await resp.json()
-                return data["choices"][0]["message"]["content"]
+                return data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
-        return f"⚠️ AI tahlil xatolik: {str(e)}"
+        # Xato bo'lsa Groq ga fallback
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}], "max_tokens": 1000}
+                ) as resp:
+                    data = await resp.json()
+                    return data["choices"][0]["message"]["content"]
+        except Exception as e2:
+            return f"⚠️ AI tahlil xatolik: {str(e2)}"
 
 # ── /start ────────────────────────────────────────────────────────────────────
 @dp.message(Command("start"))
@@ -964,14 +971,22 @@ async def handle_ai_chat(message: types.Message, state: FSMContext):
     messages.append({"role": "user", "content": user_text})
 
     try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        # Tarix bilan prompt
+        full_prompt = "Siz BilimChallenge botining yordamchi AI sisiz. O'zbek tilida qisqa, foydali va do'stona javob bering. Qonunbuzarlik, zararli yoki noetik so'rovlarga javob bermang.\n\n"
+        for h in chat_history[-6:]:
+            role = "Foydalanuvchi" if h["role"] == "user" else "AI"
+            full_prompt += f"{role}: {h['content']}\n"
+        full_prompt += f"Foydalanuvchi: {user_text}\nAI:"
+
         async with aiohttp.ClientSession() as session:
             async with session.post(
-                "https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-                json={"model": GROQ_MODEL, "messages": messages, "max_tokens": 800, "temperature": 0.7}
+                url,
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": full_prompt}]}]}
             ) as resp:
                 resp_data = await resp.json()
-                ai_reply = resp_data["choices"][0]["message"]["content"]
+                ai_reply = resp_data["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
         await message.answer(f"⚠️ AI xatolik: {str(e)}")
         return
@@ -1046,40 +1061,6 @@ async def ai_debt_no(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_reply_markup(reply_markup=None)
     await callback.message.answer("❌ Bekor qilindi. Savol bering yoki chatdan chiqing.")
     await state.set_state(UserStates.ai_chat)
-    await callback.answer()
-    section = callback.data[6:]
-    question = db.get_random_question(callback.from_user.id, q_type=section)
-    if not question:
-        await callback.answer(f"😔 Bu bo'limda hozircha savollar yo'q!", show_alert=True)
-        return
-
-    q_id, q_text, q_type, options, correct, coins, cat, diff, explanation, image_id, time_limit = question
-    await state.set_state(UserStates.answering_ielts)
-    await state.update_data(question_id=q_id, q_type=q_type, coins=coins, section=section)
-
-    time_note = f"\n⏰ <b>Tavsiya etilgan vaqt:</b> {time_limit}" if time_limit else ""
-    icons = {"writing": "📝", "essay": "✍️", "reading": "📖", "speaking": "🗣"}
-    icon = icons.get(section, "🎓")
-
-    header = f"{icon} <b>{section.upper()}</b>  🆔 #{q_id}{time_note}\n\n❓ <b>{q_text}</b>"
-
-    if section == "reading":
-        header += "\n\n📌 <i>Javoblarni qatorma-qator yozing (har bir javob alohida qatorda)</i>"
-    elif section == "speaking":
-        header += "\n\n🎙 <i>Javobingizni ovozli xabar sifatida yuboring</i>"
-    else:
-        header += "\n\n✍️ <i>Javobingizni yozing (qanchalik to'liq bo'lsa, shunchalik yaxshi baholanadi)</i>"
-
-    if image_id:
-        try: await bot.send_photo(callback.message.chat.id, photo=image_id, caption=header, parse_mode="HTML")
-        except: await callback.message.answer(header, parse_mode="HTML")
-    else:
-        await callback.message.answer(header, parse_mode="HTML")
-
-    skip_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏭ O'tkazib yuborish", callback_data=f"skip_ielts_{section}")]
-    ])
-    await callback.message.answer("👆 Javob yuboring:", reply_markup=skip_kb)
     await callback.answer()
 
 # ── REYTING ───────────────────────────────────────────────────────────────────
@@ -1285,23 +1266,51 @@ async def choose_qtype(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(AdminStates.waiting_question_text)
 async def get_question_text(message: types.Message, state: FSMContext):
-    await state.update_data(q_text=message.text)
     data = await state.get_data()
     qtype = data["q_type"]
+
+    # /done buyrug'i — to'plangan matnni saqlash
+    if message.text and message.text.strip() == "/done":
+        accumulated = data.get("accumulated_text", "")
+        if not accumulated:
+            await message.answer("⚠️ Avval matn yuboring!")
+            return
+        await state.update_data(q_text=accumulated)
+        data = await state.get_data()
+        if qtype == "reading":
+            await state.set_state(AdminStates.waiting_correct_answer)
+            await message.answer("✅ To'g'ri javoblarni kiriting (har biri yangi qatorda):")
+        elif qtype in IELTS_TYPES:
+            await state.update_data(correct="", options="")
+            await state.set_state(AdminStates.waiting_coin_reward)
+            await message.answer("💰 Bu savol uchun necha coin?")
+        else:
+            await state.set_state(AdminStates.waiting_correct_answer)
+            await message.answer("✅ To'g'ri javobni kiriting:")
+        return
+
+    # Matnni to'plash (uzun matnlar uchun)
+    if qtype in ["reading"] + IELTS_TYPES:
+        prev = data.get("accumulated_text", "")
+        new_text = (prev + "\n" + message.text).strip() if prev else message.text
+        await state.update_data(accumulated_text=new_text)
+        char_count = len(new_text)
+        await message.answer(
+            f"✅ Matn qabul qilindi ({char_count} belgi)\n\n"
+            f"📝 Yana matn yuborishingiz mumkin (uzun bo'lsa davom eting)\n"
+            f"✅ Tugatish uchun <b>/done</b> yozing",
+            parse_mode="HTML"
+        )
+        return
+
+    # Oddiy savollar — bir xabar yetarli
+    await state.update_data(q_text=message.text)
     if qtype == "test":
         await state.set_state(AdminStates.waiting_options)
         await message.answer("📋 Variantlarni kiriting (har biri yangi qatorda):\n\nMisol:\nOsiyo\nAfrika\nAmerika\nYevropa")
-    elif qtype == "reading":
-        await state.set_state(AdminStates.waiting_correct_answer)
-        await message.answer("✅ To'g'ri javoblarni kiriting (har biri yangi qatorda):")
-    elif qtype in IELTS_TYPES:
-        # IELTS: to'g'ri javob shart emas
-        await state.update_data(correct="", options="")
-        await state.set_state(AdminStates.waiting_coin_reward)
-        await message.answer("💰 Bu savol uchun necha coin?")
     else:
         await state.set_state(AdminStates.waiting_correct_answer)
-        await message.answer("✅ To'g'ri javobni kiriting (ochiq savol uchun bir nechta to'g'ri javob bo'lsa, har birini yangi qatordan yozing):")
+        await message.answer("✅ To'g'ri javobni kiriting (bir nechta bo'lsa har birini yangi qatordan):")
 
 @dp.message(AdminStates.waiting_options)
 async def get_options(message: types.Message, state: FSMContext):
