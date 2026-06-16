@@ -376,6 +376,348 @@ async def handle_test_answer(callback: types.CallbackQuery, state: FSMContext):
         db.add_coins(uid,earned); text=f"✅ <b>To'g'ri!</b> +{earned} coin 🎉"
         if bonus>1: text+=f"\n🔥 Streak bonusi x{bonus}!"
         sm=streak_msg(ns)
+      STICKERS_WRONG_RANDOM = ["CAACAgIAAxkBAAFK2B9qGBSy53xM_fWFSR3_QB-b-96PzwACuUIAAkSZyEj30qYDy3h_-TsE","CAACAgIAAxkBAAFK2CFqGBTQxCg8PTNAy8ELJPO1ekiKQAACcSkAAthiwUi7vlkGdgu7SjsE"]
+STICKERS_TIMEOUT = ["CAACAgIAAxkBAAFK2CpqGBT9Y8JM8DQ_k5oZ_koPS4fNlgACWiYAAlDgwEhOxSLS4ALrSDsE","CAACAgIAAxkBAAFK2CVqGBTpcrLFTrOLIF6ZRjaUHU_NxwACei0AAhRdCUkIUGBOZbVgrjsE"]
+STICKER_LEADERBOARD = "CAACAgQAAxkBAAFK2F5qGBZib8V7GFYDhDMw8H10BaJIfgAChBYAAkfnsFEm5zMVxs4-nDsE"
+STICKER_TOP1 = "CAACAgQAAxkBAAFK2pVqGC8QLY1z08fADOc-QGogLJWn2AACFxsAAvdb0FEvAAGtAAFifD0MOwQ"
+STICKER_TOP2 = "CAACAgQAAxkBAAFK2E9qGBXpsYQFe_Q2qKm4WQcn5lZeRAACGhYAAkQp2VGaVMouneMzrjsE"
+STICKER_TOP3 = "CAACAgQAAxkBAAFK2FJqGBXrg1BmRPSdqE663UwwKVFsWAACnxQAAk8s6FDKghp6_6nUJDsE"
+STICKER_TOP5 = "CAACAgQAAxkBAAFK2FZqGBX4e7mmRfTgeyt3WLZCD4xSdQADFwACZFbRUYAvpAABVerDrjsE"
+STICKER_TOP10= "CAACAgQAAxkBAAFK2FhqGBYKX7aALmALEnidgp-wFO-3nQAC2RYAAj6CKVFONJy-EgNA5TsE"
+
+def get_correct_sticker(c):
+    if c<=1: return STICKER_CORRECT_LOW
+    elif c<=5: return random.choice(STICKERS_CORRECT_RANDOM)
+    else: return STICKER_CORRECT_HIGH
+
+def get_wrong_sticker(c):
+    if c<=1: return STICKER_WRONG_LOW
+    elif c<=5: return STICKER_WRONG_MID
+    else: return STICKER_WRONG_HIGH
+
+def get_rank_sticker(r):
+    if r==1: return STICKER_TOP1
+    elif r==2: return STICKER_TOP2
+    elif r==3: return STICKER_TOP3
+    elif r<=5: return STICKER_TOP5
+    elif r<=10: return STICKER_TOP10
+    return None
+
+def is_admin(uid): return uid in ADMIN_IDS
+def is_sub_admin(uid): return db.is_sub_admin(uid)
+def is_any_admin(uid): return is_admin(uid) or is_sub_admin(uid)
+
+class AdminStates(StatesGroup):
+    waiting_question_type=State(); waiting_question_text=State(); waiting_options=State()
+    waiting_correct_answer=State(); waiting_coin_reward=State(); waiting_difficulty=State()
+    waiting_category=State(); waiting_explanation=State(); waiting_image=State()
+    waiting_time_limit=State(); waiting_new_category=State(); editing_field=State()
+    editing_value=State(); broadcast_text=State(); broadcast_image=State()
+    payment_amount=State(); payment_note=State(); payment_target=State()
+    sub_admin_select=State(); sub_admin_salary=State(); fb_reply_text=State()
+
+class SubAdminStates(StatesGroup):
+    waiting_question_type=State(); waiting_question_text=State(); waiting_options=State()
+    waiting_correct_answer=State(); waiting_coin_reward=State(); waiting_difficulty=State()
+    waiting_category=State(); waiting_explanation=State()
+    writing_report=State(); fb_reply=State(); broadcast_text=State(); broadcast_image=State()
+
+class UserStates(StatesGroup):
+    answering_open=State(); sending_feedback=State(); answering_premium=State()
+    answering_ielts=State(); ai_chat=State(); ai_chat_confirm_debt=State()
+
+def main_menu(uid):
+    b=[[KeyboardButton(text="🎯 Savol olish"),KeyboardButton(text="🏆 Reyting")],
+       [KeyboardButton(text="👤 Profilim"),KeyboardButton(text="ℹ️ Yordam")],
+       [KeyboardButton(text="📝 Taklif/Shikoyat"),KeyboardButton(text="🎓 IELTS")],
+       [KeyboardButton(text="🤖 AI Chat")]]
+    if is_admin(uid): b.append([KeyboardButton(text="⚙️ Admin Panel")])
+    if is_sub_admin(uid) and not is_admin(uid): b.append([KeyboardButton(text="🛡 Yordamchi Admin Panel")])
+    return ReplyKeyboardMarkup(keyboard=b, resize_keyboard=True)
+
+def admin_menu():
+    b=[[KeyboardButton(text="➕ Savol qo'shish"),KeyboardButton(text="📋 Savollar ro'yxati")],
+       [KeyboardButton(text="✏️ Savol tahrirlash"),KeyboardButton(text="🗑 Savol o'chirish")],
+       [KeyboardButton(text="📂 Kategoriyalar"),KeyboardButton(text="📊 Statistika")],
+       [KeyboardButton(text="👥 Foydalanuvchilar"),KeyboardButton(text="💬 Takliflar")],
+       [KeyboardButton(text="📢 Xabar yuborish"),KeyboardButton(text="⏳ Kutayotgan savollar")],
+       [KeyboardButton(text="🛡 Yordamchi Adminlar"),KeyboardButton(text="🗳 Saylov boshqaruvi")],
+       [KeyboardButton(text="💰 Mukofot/Jarima"),KeyboardButton(text="📜 Hisobotlar")],
+       [KeyboardButton(text="🔙 Asosiy menyu")]]
+    return ReplyKeyboardMarkup(keyboard=b, resize_keyboard=True)
+
+def sub_admin_menu():
+    b=[[KeyboardButton(text="➕ Savol yuborish"),KeyboardButton(text="📝 Hisobot yozish")],
+       [KeyboardButton(text="💬 Takliflar o'qish"),KeyboardButton(text="💬 Javob yozish")],
+       [KeyboardButton(text="📢 Xabar tarqatish"),KeyboardButton(text="💰 Moashim")],
+       [KeyboardButton(text="🔙 Asosiy menyu")]]
+    return ReplyKeyboardMarkup(keyboard=b, resize_keyboard=True)
+
+def streak_bonus(s):
+    b=1.0
+    for t in sorted(STREAK_BONUSES.keys()):
+        if s>=t: b=STREAK_BONUSES[t]
+    return b
+
+def streak_msg(s):
+    if s>=10: return f"🔥🔥🔥 SUPER STREAK x{s}!"
+    if s>=5: return f"🔥🔥 STREAK x{s}!"
+    if s>=3: return f"🔥 STREAK x{s}!"
+    return ""
+
+def shuffle_options(opts_str, correct_letter):
+    opts=opts_str.split("|")
+    ci=ord(correct_letter.upper())-65
+    if ci>=len(opts): return opts_str, correct_letter
+    ct=opts[ci]; idx=list(range(len(opts))); random.shuffle(idx)
+    shuffled=[opts[i] for i in idx]; nci=shuffled.index(ct)
+    return "|".join(shuffled), chr(65+nci)
+
+def check_answer(user_ans, correct_ans):
+    uc=user_ans.strip().lower()
+    return uc in [a.strip().lower() for a in correct_ans.split("\n") if a.strip()]
+
+async def ai_req(prompt):
+    try:
+        url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        async with aiohttp.ClientSession() as s:
+            async with s.post(url, headers={"Content-Type":"application/json"},
+                json={"contents":[{"parts":[{"text":prompt}]}]},
+                timeout=aiohttp.ClientTimeout(total=30)) as r:
+                d=await r.json()
+                if "candidates" in d and d["candidates"]:
+                    return d["candidates"][0]["content"]["parts"][0]["text"]
+    except: pass
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post("https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization":f"Bearer {GROQ_API_KEY}","Content-Type":"application/json"},
+                json={"model":GROQ_MODEL,"messages":[{"role":"user","content":prompt}],"max_tokens":1000},
+                timeout=aiohttp.ClientTimeout(total=30)) as r:
+                d=await r.json()
+                return d["choices"][0]["message"]["content"]
+    except: pass
+    return "⚠️ AI hozirda ishlamayapti."
+
+async def ai_chat_req(history, user_text):
+    sys_p="Siz BilimChallenge botining yordamchi AI sisiz. O'zbek tilida qisqa va foydali javob bering."
+    try:
+        prompt=sys_p+"\n\n"
+        for h in history[-6:]:
+            role="Foydalanuvchi" if h["role"]=="user" else "AI"
+            prompt+=f"{role}: {h['content']}\n"
+        prompt+=f"Foydalanuvchi: {user_text}\nAI:"
+        url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        async with aiohttp.ClientSession() as s:
+            async with s.post(url, headers={"Content-Type":"application/json"},
+                json={"contents":[{"parts":[{"text":prompt}]}]},
+                timeout=aiohttp.ClientTimeout(total=30)) as r:
+                d=await r.json()
+                if "candidates" in d and d["candidates"]:
+                    return d["candidates"][0]["content"]["parts"][0]["text"]
+    except: pass
+    try:
+        msgs=[{"role":"system","content":sys_p}]+history[-6:]+[{"role":"user","content":user_text}]
+        async with aiohttp.ClientSession() as s:
+            async with s.post("https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization":f"Bearer {GROQ_API_KEY}","Content-Type":"application/json"},
+                json={"model":GROQ_MODEL,"messages":msgs,"max_tokens":800},
+                timeout=aiohttp.ClientTimeout(total=30)) as r:
+                d=await r.json()
+                return d["choices"][0]["message"]["content"]
+    except: pass
+    return "⚠️ AI hozirda ishlamayapti."
+
+def parse_band(text):
+    for p in [r'Band\s*Score[:\s]+(\d+\.?\d*)',r'(\d+\.?\d*)\s*/\s*9(?:\.0)?',r'(\d+\.?\d*)\s*ball']:
+        m=re.search(p, text, re.IGNORECASE)
+        if m:
+            try:
+                v=float(m.group(1))
+                if v<=9: return v
+            except: pass
+    return None
+
+# ═══════════════ START ═══════════════
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    user=message.from_user
+    args=message.text.split()
+    referrer_id=None
+    if len(args)>1 and args[1].startswith("ref"):
+        try:
+            referrer_id=int(args[1][3:])
+            if referrer_id==user.id: referrer_id=None
+        except: pass
+    db.add_user(user.id, user.username or "", user.first_name or "", referrer_id)
+    ref_msg=""
+    if referrer_id:
+        ref_msg="\n\n🎁 <b>Referal orqali qo'shildingiz!</b>\nDo'stingiz <b>+30 coin</b> oldi!"
+    await message.answer(
+        f"🧠 <b>BilimChallenge</b> ga xush kelibsiz, {user.first_name}!\n\n"
+        "🎯 Savollarga javob bering\n💰 Coinlar to'plang\n"
+        "🔥 Streak yig'ing\n🏆 Global reyting\n🎓 IELTS — AI bilan\n🤖 AI Chat\n"
+        "👥 Do'stlarni taklif qiling — har biri uchun +30 coin!\n\n"
+        "Boshlash uchun <b>Savol olish</b>!"+ref_msg,
+        parse_mode="HTML", reply_markup=main_menu(user.id))
+
+@dp.message(Command("cancel"))
+@dp.message(Command("stop"))
+async def cancel_cmd(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Bekor qilindi.", reply_markup=main_menu(message.from_user.id))
+
+# ═══════════════ SAVOL OLISH ═══════════════
+@dp.message(F.text=="🎯 Savol olish")
+async def get_question_start(message: types.Message, state: FSMContext):
+    await state.clear()
+    cats=db.get_categories()
+    if not cats:
+        await message.answer("😔 Hozircha savollar yo'q!"); return
+    buttons=[]; row=[]
+    for cat in cats:
+        row.append(InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"cat_{cat}"))
+        if len(row)==2: buttons.append(row); row=[]
+    if row: buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="🌐 Aralash (barcha)", callback_data="cat_Barchasi")])
+    await message.answer("📂 <b>Kategoriya tanlang:</b>", parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+@dp.callback_query(F.data.startswith("cat_"))
+async def category_chosen(callback: types.CallbackQuery, state: FSMContext):
+    category=callback.data[4:]
+    await state.update_data(category=category)
+    try: await callback.message.delete()
+    except: pass
+    kb=InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Test savollar", callback_data=f"qmode_test_{category}")],
+        [InlineKeyboardButton(text="✍️ Ochiq savollar", callback_data=f"qmode_open_{category}")],
+        [InlineKeyboardButton(text="🌐 Aralash", callback_data=f"qmode_all_{category}")]])
+    await callback.message.answer(f"📂 <b>{category}</b>\n\nSavol turini tanlang:", parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("qmode_"))
+async def qmode_chosen(callback: types.CallbackQuery, state: FSMContext):
+    parts=callback.data.split("_",2); mode,category=parts[1],parts[2]
+    await state.update_data(category=category, qmode=mode)
+    try: await callback.message.delete()
+    except: pass
+    await send_question(callback.message, callback.from_user.id, state, category, mode)
+    await callback.answer()
+
+async def send_question(message, user_id, state, category, mode="all"):
+    if mode=="test": q=db.get_random_question(user_id, category, q_type="test")
+    elif mode=="open": q=db.get_random_question(user_id, category, q_type="open")
+    else: q=db.get_random_question(user_id, category, q_type=None)
+    if not q:
+        cats=db.get_categories(); buttons=[]; row=[]
+        for cat in cats:
+            row.append(InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"cat_{cat}"))
+            if len(row)==2: buttons.append(row); row=[]
+        if row: buttons.append(row)
+        buttons.append([InlineKeyboardButton(text="🌐 Aralash", callback_data="cat_Barchasi")])
+        await message.answer("🎉 <b>Bu bo'limdagi savollar tugadi!</b>\n\nBoshqa kategoriyani tanlang:",
+            parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)); return
+    q_id,q_text,q_type,options,correct,coins,cat,difficulty,explanation,image_id,time_limit=q
+    if q_type=="premium":
+        await send_premium_question(message, user_id, state, category); return
+    diff_icon=DIFFICULTY_ICONS.get(difficulty,"🟡"); diff_name=DIFFICULTY_NAMES.get(difficulty,"O'rta")
+    q_time=DIFFICULTY_TIME.get(difficulty,30)
+    header=(f"🆔 <b>#{q_id}</b>  📂 <b>{cat}</b>  {diff_icon} <b>{diff_name}</b>\n"
+            f"💰 To'g'ri: <b>+{coins} coin</b>  ❌ Noto'g'ri: <b>-{round(coins*PENALTY_PERCENT,1)} coin</b>\n"
+            f"⏱ Vaqt: <b>{q_time} soniya</b>\n\n❓ <b>{q_text}</b>")
+    try: await bot.send_sticker(message.chat.id, sticker=STICKER_QUESTION)
+    except: pass
+    if q_type=="test":
+        shuffled_opts,new_correct=shuffle_options(options, correct)
+        opts_list=shuffled_opts.split("|")
+        kb=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"{chr(65+i)}. {opt[:64]}", callback_data=f"ans_{q_id}_{chr(65+i)}_{new_correct}")]
+            for i,opt in enumerate(opts_list)])
+        if image_id:
+            try: sent=await bot.send_photo(message.chat.id, photo=image_id, caption=header, parse_mode="HTML", reply_markup=kb)
+            except: sent=await message.answer(header, parse_mode="HTML", reply_markup=kb)
+        else: sent=await message.answer(header, parse_mode="HTML", reply_markup=kb)
+        await state.update_data(question_id=q_id, msg_id=sent.message_id, chat_id=message.chat.id)
+        if user_id in active_timers: active_timers[user_id].cancel()
+        active_timers[user_id]=asyncio.create_task(
+            question_timeout(user_id,q_id,sent.message_id,message.chat.id,coins,state,q_time))
+    else:
+        await state.set_state(UserStates.answering_open)
+        await state.update_data(question_id=q_id, correct=correct, coins=coins, explanation=explanation)
+        text=header+"\n\n✍️ <b>Javobingizni yozing:</b>"
+        if image_id:
+            try: sent=await bot.send_photo(message.chat.id, photo=image_id, caption=text, parse_mode="HTML")
+            except: sent=await message.answer(text, parse_mode="HTML")
+        else: sent=await message.answer(text, parse_mode="HTML")
+        await message.answer("👆 Javob yozing:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ O'tkazib yuborish", callback_data=f"skip_open_{q_id}")]]))
+        if user_id in active_timers: active_timers[user_id].cancel()
+        active_timers[user_id]=asyncio.create_task(
+            question_timeout(user_id,q_id,sent.message_id,message.chat.id,coins,state,q_time))
+
+async def question_timeout(user_id,q_id,msg_id,chat_id,coins,state,q_time=30):
+    total=q_time; wait=total-10
+    if wait>0: await asyncio.sleep(wait)
+    timer_msg=None
+    for remaining in range(10,0,-1):
+        if db.already_answered(user_id,q_id):
+            if timer_msg:
+                try: await timer_msg.delete()
+                except: pass
+            return
+        filled=int((remaining/total)*10)
+        block="🟥" if remaining<=3 else ("🟧" if remaining<=6 else "🟨")
+        bar=block*filled+"⬜"*(10-filled)
+        try:
+            if timer_msg is None: timer_msg=await bot.send_message(chat_id,f"⏱ <b>{remaining}s</b>  {bar}",parse_mode="HTML")
+            else: await timer_msg.edit_text(f"⏱ <b>{remaining}s</b>  {bar}",parse_mode="HTML")
+        except: pass
+        await asyncio.sleep(1)
+    if db.already_answered(user_id,q_id):
+        if timer_msg:
+            try: await timer_msg.delete()
+            except: pass
+        return
+    db.save_answer(user_id,q_id,False); penalty=round(coins*TIMEOUT_PENALTY,1)
+    db.add_coins(user_id,-penalty); db.update_streak(user_id,False)
+    if timer_msg:
+        try: await timer_msg.delete()
+        except: pass
+    try: await bot.edit_message_reply_markup(chat_id=chat_id,message_id=msg_id,reply_markup=None)
+    except: pass
+    try: await bot.send_sticker(chat_id,sticker=random.choice(STICKERS_TIMEOUT))
+    except: pass
+    data=await state.get_data()
+    cat=data.get("category","Barchasi"); mode=data.get("qmode","all")
+    try:
+        await bot.send_message(chat_id,f"⏰ <b>Vaqt tugadi!</b>\n❌ -{penalty} coin (45%)",parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="➡️ Keyingi savol",callback_data=f"next_{mode}_{cat}")]]))
+    except: pass
+    active_timers.pop(user_id,None)
+
+@dp.callback_query(F.data.startswith("ans_"))
+async def handle_test_answer(callback: types.CallbackQuery, state: FSMContext):
+    parts=callback.data.split("_")
+    q_id,ua,cl=int(parts[1]),parts[2],parts[3]
+    uid=callback.from_user.id
+    if db.already_answered(uid,q_id):
+        await callback.answer("⚠️ Allaqachon javob bergansiz!",show_alert=True); return
+    q=db.get_question_by_id(q_id)
+    if not q:
+        await callback.answer("Savol topilmadi!",show_alert=True); return
+    q_id,q_text,q_type,options,correct,coins,cat,diff,explanation,image_id,tl=q
+    is_correct=ua.upper()==cl.upper()
+    db.save_answer(uid,q_id,is_correct)
+    if uid in active_timers: active_timers[uid].cancel(); active_timers.pop(uid,None)
+    data=await state.get_data()
+    cat2=data.get("category","Barchasi"); mode=data.get("qmode","all")
+    if is_correct:
+        ns=db.update_streak(uid,True); bonus=streak_bonus(ns); earned=round(coins*bonus,1)
+        db.add_coins(uid,earned); text=f"✅ <b>To'g'ri!</b> +{earned} coin 🎉"
+        if bonus>1: text+=f"\n🔥 Streak bonusi x{bonus}!"
+        sm=streak_msg(ns)
         if sm: text+=f"\n{sm}"
     else:
         db.update_streak(uid,False); penalty=round(coins*PENALTY_PERCENT,1)
