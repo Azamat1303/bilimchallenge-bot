@@ -190,6 +190,7 @@ class Database:
         try:
             cur.execute("ALTER TABLE questions ADD COLUMN time_limit TEXT DEFAULT ''")
         except: pass
+        self.create_group_tables()
 
     # ── USERS ─────────────────────────────────────────────────────────────────
     def add_user(self, user_id, username, first_name, referrer_id=None):
@@ -599,3 +600,137 @@ class Database:
         cur.execute("UPDATE pending_questions SET status='rejected' WHERE id=%s", (pq_id,))
 
 db = Database()
+
+
+    # ── GROUPS ───────────────────────────────────────────────────────────────
+    def create_group_tables(self):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                chat_id     BIGINT PRIMARY KEY,
+                title       TEXT DEFAULT '',
+                is_main     INTEGER DEFAULT 0,
+                is_active   INTEGER DEFAULT 1,
+                added_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+                category    TEXT DEFAULT 'Barchasi'
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_answers (
+                id          SERIAL PRIMARY KEY,
+                chat_id     BIGINT,
+                user_id     BIGINT,
+                question_id INTEGER,
+                is_correct  INTEGER DEFAULT 0,
+                answered_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_active_questions (
+                chat_id     BIGINT PRIMARY KEY,
+                question_id INTEGER,
+                correct     TEXT,
+                coins       REAL DEFAULT 5,
+                asked_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_open     INTEGER DEFAULT 1
+            )
+        """)
+
+    def add_group(self, chat_id, title):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            INSERT INTO groups (chat_id, title) VALUES (%s, %s)
+            ON CONFLICT (chat_id) DO UPDATE SET title=%s, is_active=1
+        """, (chat_id, title, title))
+
+    def remove_group(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE groups SET is_active=0 WHERE chat_id=%s", (chat_id,))
+
+    def get_group(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT * FROM groups WHERE chat_id=%s", (chat_id,))
+        return cur.fetchone()
+
+    def get_all_groups(self):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT * FROM groups WHERE is_active=1")
+        return cur.fetchall()
+
+    def set_main_group(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE groups SET is_main=0")
+        cur.execute("UPDATE groups SET is_main=1 WHERE chat_id=%s", (chat_id,))
+
+    def get_main_group(self):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT chat_id FROM groups WHERE is_main=1 LIMIT 1")
+        row = cur.fetchone()
+        return row[0] if row else None
+
+    def set_group_category(self, chat_id, category):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE groups SET category=%s WHERE chat_id=%s", (category, chat_id))
+
+    def get_group_category(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT category FROM groups WHERE chat_id=%s", (chat_id,))
+        row = cur.fetchone()
+        return row[0] if row else "Barchasi"
+
+    # Guruh aktiv savoli
+    def set_group_question(self, chat_id, question_id, correct, coins):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            INSERT INTO group_active_questions (chat_id, question_id, correct, coins, is_open)
+            VALUES (%s, %s, %s, %s, 1)
+            ON CONFLICT (chat_id) DO UPDATE SET question_id=%s, correct=%s, coins=%s, is_open=1, asked_at=CURRENT_TIMESTAMP
+        """, (chat_id, question_id, correct, coins, question_id, correct, coins))
+
+    def get_group_question(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT * FROM group_active_questions WHERE chat_id=%s AND is_open=1", (chat_id,))
+        return cur.fetchone()
+
+    def close_group_question(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE group_active_questions SET is_open=0 WHERE chat_id=%s", (chat_id,))
+
+    # Guruh javoblari
+    def save_group_answer(self, chat_id, user_id, question_id, is_correct):
+        cur = self.get_conn().cursor()
+        # Bir savolga bir marta javob
+        cur.execute("SELECT 1 FROM group_answers WHERE chat_id=%s AND user_id=%s AND question_id=%s",
+                    (chat_id, user_id, question_id))
+        if cur.fetchone(): return False
+        cur.execute("INSERT INTO group_answers (chat_id, user_id, question_id, is_correct) VALUES (%s,%s,%s,%s)",
+                    (chat_id, user_id, question_id, int(is_correct)))
+        return True
+
+    def already_answered_group(self, chat_id, user_id, question_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT 1 FROM group_answers WHERE chat_id=%s AND user_id=%s AND question_id=%s",
+                    (chat_id, user_id, question_id))
+        return cur.fetchone() is not None
+
+    def get_group_leaderboard(self, chat_id, limit=10):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT ga.user_id, u.first_name, u.username, COUNT(*) as correct_count
+            FROM group_answers ga
+            LEFT JOIN users u ON u.user_id = ga.user_id
+            WHERE ga.chat_id=%s AND ga.is_correct=1
+            GROUP BY ga.user_id, u.first_name, u.username
+            ORDER BY correct_count DESC LIMIT %s
+        """, (chat_id, limit))
+        return cur.fetchall()
+
+    def get_group_stats(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT COUNT(DISTINCT user_id) FROM group_answers WHERE chat_id=%s", (chat_id,))
+        players = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM group_answers WHERE chat_id=%s AND is_correct=1", (chat_id,))
+        correct = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM group_answers WHERE chat_id=%s", (chat_id,))
+        total = cur.fetchone()[0]
+        return {"players": players, "correct": correct, "total": total}
