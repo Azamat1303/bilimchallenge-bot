@@ -73,6 +73,7 @@ class AdminStates(StatesGroup):
     editing_value=State(); broadcast_text=State(); broadcast_image=State()
     payment_amount=State(); payment_note=State(); payment_target=State()
     sub_admin_select=State(); sub_admin_salary=State(); fb_reply_text=State()
+    waiting_edit_id=State()
 
 class SubAdminStates(StatesGroup):
     waiting_question_type=State(); waiting_question_text=State(); waiting_options=State()
@@ -101,7 +102,7 @@ def admin_menu():
        [KeyboardButton(text="📢 Xabar yuborish"),KeyboardButton(text="⏳ Kutayotgan savollar")],
        [KeyboardButton(text="🛡 Yordamchi Adminlar"),KeyboardButton(text="🗳 Saylov boshqaruvi")],
        [KeyboardButton(text="💰 Mukofot/Jarima"),KeyboardButton(text="📜 Hisobotlar")],
-       [KeyboardButton(text="🔙 Asosiy menyu")]]
+       [KeyboardButton(text="👥 Guruhlar"),KeyboardButton(text="🔙 Asosiy menyu")]]
     return ReplyKeyboardMarkup(keyboard=b, resize_keyboard=True)
 
 def sub_admin_menu():
@@ -137,16 +138,6 @@ def check_answer(user_ans, correct_ans):
 
 async def ai_req(prompt):
     try:
-        url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        async with aiohttp.ClientSession() as s:
-            async with s.post(url, headers={"Content-Type":"application/json"},
-                json={"contents":[{"parts":[{"text":prompt}]}]},
-                timeout=aiohttp.ClientTimeout(total=30)) as r:
-                d=await r.json()
-                if "candidates" in d and d["candidates"]:
-                    return d["candidates"][0]["content"]["parts"][0]["text"]
-    except: pass
-    try:
         async with aiohttp.ClientSession() as s:
             async with s.post("https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization":f"Bearer {GROQ_API_KEY}","Content-Type":"application/json"},
@@ -159,21 +150,6 @@ async def ai_req(prompt):
 
 async def ai_chat_req(history, user_text):
     sys_p="Siz BilimChallenge botining yordamchi AI sisiz. O'zbek tilida qisqa va foydali javob bering."
-    try:
-        prompt=sys_p+"\n\n"
-        for h in history[-6:]:
-            role="Foydalanuvchi" if h["role"]=="user" else "AI"
-            prompt+=f"{role}: {h['content']}\n"
-        prompt+=f"Foydalanuvchi: {user_text}\nAI:"
-        url=f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
-        async with aiohttp.ClientSession() as s:
-            async with s.post(url, headers={"Content-Type":"application/json"},
-                json={"contents":[{"parts":[{"text":prompt}]}]},
-                timeout=aiohttp.ClientTimeout(total=30)) as r:
-                d=await r.json()
-                if "candidates" in d and d["candidates"]:
-                    return d["candidates"][0]["content"]["parts"][0]["text"]
-    except: pass
     try:
         msgs=[{"role":"system","content":sys_p}]+history[-6:]+[{"role":"user","content":user_text}]
         async with aiohttp.ClientSession() as s:
@@ -224,6 +200,37 @@ async def cmd_start(message: types.Message):
 async def cancel_cmd(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Bekor qilindi.", reply_markup=main_menu(message.from_user.id))
+
+# ═══════════════ QO'SHIMCHA BUYRUQLAR ═══════════════
+@dp.message(Command("profil"))
+async def cmd_profil(message: types.Message):
+    user = db.get_user(message.from_user.id)
+    if not user:
+        await message.answer("Profil topilmadi! /start bosing."); return
+    uid,username,fname,coins,total_ans,correct_ans,streak,max_streak,join_date = user
+    rank = db.get_user_rank(uid)
+    accuracy = round((correct_ans/total_ans*100),1) if total_ans>0 else 0
+    ref_count = db.get_ref_count(uid)
+    me = await bot.get_me()
+    ref_link = "https://t.me/" + me.username + "?start=ref" + str(uid)
+    text = "\U0001f464 <b>" + fname + "</b>\n\n"
+    text += "\U0001f4b0 Coinlar: <b>" + str(round(coins,1)) + "</b>  \U0001f3c6 Reyting: <b>#" + str(rank) + "</b>\n"
+    text += "\U0001f525 Streak: <b>" + str(streak) + "</b>  \U0001f4dd Javoblar: <b>" + str(total_ans) + "</b>\n"
+    text += "\U0001f3af Aniqlik: <b>" + str(accuracy) + "%</b>\n"
+    text += "\U0001f465 Taklif qilinganlar: <b>" + str(ref_count) + " ta</b>\n\n"
+    text += "\U0001f517 <code>" + ref_link + "</code>"
+    await message.answer(text, parse_mode="HTML")
+
+@dp.message(Command("referal"))
+async def cmd_referal(message: types.Message):
+    uid = message.from_user.id
+    me = await bot.get_me()
+    ref_link = "https://t.me/" + me.username + "?start=ref" + str(uid)
+    ref_count = db.get_ref_count(uid)
+    text = "\U0001f517 <b>Referal havolangiz:</b>\n<code>" + ref_link + "</code>\n\n"
+    text += "\U0001f465 Taklif qilinganlar: <b>" + str(ref_count) + " ta</b>\n"
+    text += "\U0001f4b0 Har bir do'st uchun: <b>+30 coin</b>"
+    await message.answer(text, parse_mode="HTML")
 
 # ═══════════════ SAVOL OLISH ═══════════════
 @dp.message(F.text=="🎯 Savol olish")
@@ -390,7 +397,8 @@ async def handle_test_answer(callback: types.CallbackQuery, state: FSMContext):
     try: await bot.send_sticker(callback.message.chat.id,sticker=get_correct_sticker(coins) if is_correct else get_wrong_sticker(coins))
     except: pass
     await callback.message.answer(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="➡️ Keyingi savol",callback_data=f"next_{mode}_{cat2}")]]))
+        InlineKeyboardButton(text="➡️ Yana savol olish",callback_data=f"next_{mode}_{cat2}"),
+        InlineKeyboardButton(text="📂 Kategoriya",callback_data="go_categories")]]))
     await callback.answer()
 
 @dp.message(UserStates.answering_open)
@@ -418,7 +426,8 @@ async def handle_open_answer(message: types.Message, state: FSMContext):
     try: await bot.send_sticker(message.chat.id,sticker=get_correct_sticker(coins) if is_correct else get_wrong_sticker(coins))
     except: pass
     await message.answer(text,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="➡️ Keyingi savol",callback_data=f"next_{mode}_{cat}")]]))
+        InlineKeyboardButton(text="➡️ Yana savol",callback_data=f"next_{mode}_{cat}"),
+        InlineKeyboardButton(text="📂 Kategoriya",callback_data="go_categories")]]))
     await state.clear()
 
 @dp.callback_query(F.data.startswith("skip_open_"))
@@ -428,7 +437,21 @@ async def skip_open(callback: types.CallbackQuery, state: FSMContext):
     try: await callback.message.edit_reply_markup(reply_markup=None)
     except: pass
     await callback.message.answer("⏭ O'tkazib yuborildi.",reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="➡️ Keyingi savol",callback_data=f"next_{mode}_{cat}")]]))
+        InlineKeyboardButton(text="➡️ Yana savol",callback_data=f"next_{mode}_{cat}"),
+        InlineKeyboardButton(text="📂 Kategoriya",callback_data="go_categories")]]))
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("go_categories"))
+async def go_categories_cb(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    cats=db.get_categories(); buttons=[]; row=[]
+    for cat in cats:
+        row.append(InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"cat_{cat}"))
+        if len(row)==2: buttons.append(row); row=[]
+    if row: buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="🌐 Aralash", callback_data="cat_Barchasi")])
+    await callback.message.answer("📂 <b>Kategoriya tanlang:</b>", parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("next_"))
@@ -437,7 +460,23 @@ async def next_question(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(category=cat,qmode=mode)
     try: await callback.message.edit_reply_markup(reply_markup=None)
     except: pass
-    await send_question(callback.message,callback.from_user.id,state,cat,mode)
+    uid=callback.from_user.id
+    # Savol borligini tekshirish
+    if mode=="test": q=db.get_random_question(uid, cat, q_type="test")
+    elif mode=="open": q=db.get_random_question(uid, cat, q_type="open")
+    else: q=db.get_random_question(uid, cat, q_type=None)
+    if not q:
+        cats=db.get_categories(); buttons=[]; row=[]
+        for c in cats:
+            row.append(InlineKeyboardButton(text=f"📂 {c}", callback_data=f"cat_{c}"))
+            if len(row)==2: buttons.append(row); row=[]
+        if row: buttons.append(row)
+        buttons.append([InlineKeyboardButton(text="🌐 Aralash", callback_data="cat_Barchasi")])
+        await callback.message.answer(
+            "\U0001f389 <b>Barcha savollarga javob berdingiz!</b>\n\nBoshqa kategoriyani tanlang yoki ertaga qaytib keling.",
+            parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+        await callback.answer(); return
+    await send_question(callback.message,uid,state,cat,mode)
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("premium_start_"))
@@ -524,23 +563,91 @@ async def ielts_section(callback: types.CallbackQuery, state: FSMContext):
     await state.update_data(question_id=q_id,q_type=q_type,coins=coins,section=section)
     tl_note=f"\n⏰ <b>Vaqt:</b> {tl}" if tl else ""
     icons={"writing":"📝","essay":"✍️","reading":"📖","speaking":"🗣","listening":"🎧"}
-    header=f"{icons.get(section,'🎓')} <b>{section.upper()}</b>  🆔 #{q_id}{tl_note}\n\n❓ <b>{q_text}</b>"
-    if section=="reading": header+="\n\n📌 <i>Javoblarni qatorma-qator yozing</i>"
-    elif section in ["speaking","listening"]: header+="\n\n🎙 <i>Ovozli xabar yoki matn yuboring</i>"
-    else: header+="\n\n✍️ <i>Javobingizni yozing</i>"
-    if image_id:
+    header=f"{icons.get(section,'🎓')} <b>{section.upper()}</b>  🆔 #{q_id}{tl_note}\n\n"
+
+    if section=="reading":
+        # Reading - matn va savollar birgalikda
+        parts = q_text.split("---")
+        if len(parts) >= 2:
+            passage = parts[0].strip()
+            questions_part = "---".join(parts[1:]).strip()
+            header += f"📄 <b>Matn:</b>\n{passage}\n\n❓ <b>Savollar:</b>\n{questions_part}"
+        else:
+            header += f"❓ <b>{q_text}</b>"
+        header += "\n\n📌 <i>Javoblarni qatorma-qator yozing (har savol yangi qatorda)</i>"
+    elif section=="essay":
+        header += f"✍️ <b>Mavzu:</b>\n{q_text}\n\n📝 <i>O'ZBEK TILIDA insho yozing (min 150 so'z)</i>"
+    elif section=="writing":
+        header += f"📝 <b>Vazifa:</b>\n{q_text}\n\n✍️ <i>Ingliz tilida yozing (min 150 so'z)</i>"
+    elif section=="speaking":
+        header += f"🗣 <b>Savol:</b>\n{q_text}\n\n🎙 <i>Ovozli xabar yuboring yoki matn yozing</i>"
+    elif section=="listening":
+        header += f"🎧 <b>Topshiriq:</b>\n{q_text}\n\n🎙 <i>Javobingizni yozing</i>"
+    else:
+        header += f"❓ <b>{q_text}</b>"
+
+    skip_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="⏭ O'tkazib yuborish",callback_data=f"skip_ielts_{section}")]])
+
+    # Audio fayl (listening uchun)
+    if image_id and section=="listening":
+        try:
+            # Audio fayl bo'lsa
+            await bot.send_audio(callback.message.chat.id, audio=image_id, caption=header, parse_mode="HTML")
+        except:
+            try: await bot.send_voice(callback.message.chat.id, voice=image_id, caption=header, parse_mode="HTML")
+            except: await callback.message.answer(header, parse_mode="HTML")
+    elif image_id:
         try: await bot.send_photo(callback.message.chat.id,photo=image_id,caption=header,parse_mode="HTML")
         except: await callback.message.answer(header,parse_mode="HTML")
-    else: await callback.message.answer(header,parse_mode="HTML")
-    await callback.message.answer("👆 Javob yuboring:",reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="⏭ O'tkazib yuborish",callback_data=f"skip_ielts_{section}")]]))
+    else:
+        await callback.message.answer(header,parse_mode="HTML")
+
+    await callback.message.answer("👆 Javob yuboring:",reply_markup=skip_kb)
     await callback.answer()
+
+def is_uzbek_text(text):
+    """Matn o'zbekcha yoki yo'qligini tekshirish"""
+    uzbek_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZoOgGuUaeiouAEIOU'")
+    latin_only = set("qwertyuiopasdfghjklzxcvbnmQWERTYUIOPASDFGHJKLZXCVBNM")
+    cyrillic = set("абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ")
+    uzbek_words = ["va","bu","men","sen","u","biz","siz","ular","ham","emas","bor","yo'q",
+                   "deb","uchun","bilan","lekin","chunki","kerak","qilish","bo'lish","yoki"]
+    text_lower = text.lower()
+    # Kirill harflari bo'lsa - o'zbekcha
+    if any(c in cyrillic for c in text):
+        return True
+    # O'zbek so'zlari bo'lsa
+    words = text_lower.split()
+    uzbek_word_count = sum(1 for w in words if w in uzbek_words)
+    if uzbek_word_count >= 2:
+        return True
+    # Agar juda qisqa bo'lsa
+    if len(words) < 5:
+        return False
+    return False
+
+def is_lazy_answer(text):
+    """Sifatsiz javoblarni aniqlash"""
+    lazy = ["bilmayman","bilmadim","bilmiman","idk","don't know","dont know",
+            "no idea","nima deyish","tushunmadim","???","...",
+            "hm","ha","yo'q","yoq","ok","okay","test","salom","hi","hello"]
+    text_lower = text.lower().strip()
+    if len(text_lower) < 10:
+        return True
+    if text_lower in lazy:
+        return True
+    for word in lazy[:10]:
+        if text_lower == word:
+            return True
+    return False
 
 @dp.message(UserStates.answering_ielts)
 async def handle_ielts(message: types.Message, state: FSMContext):
     data=await state.get_data()
     q_id,coins,section=data["question_id"],data["coins"],data["section"]
     uid=message.from_user.id
+
     if section=="reading":
         if not message.text:
             await message.answer("✍️ Matn yuboring!"); return
@@ -553,7 +660,8 @@ async def handle_ielts(message: types.Message, state: FSMContext):
         db.add_coins(uid,earned)
         try: db.save_answer(uid,q_id,cc==total)
         except: pass
-        result=f"📖 <b>Reading natijasi</b>\n\n✅ To'g'ri: <b>{cc}/{total}</b>\nBand Score: <b>{score}/9.0</b>"
+        result="📖 <b>Reading natijasi</b>\n\n"
+        result+=f"✅ To'g'ri: <b>{cc}/{total}</b>\nBand Score: <b>{score}/9.0</b>"
         if cc<total:
             wrong=[a for a in cls if a not in uas]
             result+="\n\n❌ To'g'ri javoblar:\n"+"\n".join([f"• {w}" for w in wrong])
@@ -561,34 +669,132 @@ async def handle_ielts(message: types.Message, state: FSMContext):
         await message.answer(result,parse_mode="HTML",reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}",callback_data=f"ielts_{section}")]]))
         await state.clear(); return
-    if section in ["speaking","listening"]:
-        if message.voice:
-            await message.answer("⏳ Tahlil qilinmoqda...")
-            prompt=f"Siz IELTS {section.capitalize()} baholovchisiz. O'zbek tilida baholang. Foydalanuvchi ovozli xabar yubordi. Umumiy tavsiyalar bering. Band Score: X.X/9.0"
-        elif message.text:
-            await message.answer("⏳ AI tahlil qilmoqda...")
-            prompt=f"Siz IELTS {section.capitalize()} baholovchisiz. O'zbek tilida baholang:\n\n{message.text}\n\nBand Score: X.X/9.0. Tavsiyalar bering."
-        else:
-            await message.answer("🎙 Ovozli xabar yoki matn yuboring!"); return
-    elif section in ["writing","essay"]:
+
+    # Sifatsiz javob tekshirish
+    if message.text and is_lazy_answer(message.text):
+        try: db.save_answer(uid,q_id,False)
+        except: pass
+        await message.answer(
+            "❌ <b>0 coin!</b>\n\nJavobingiz sifatsiz yoki to'liq emas.\n"
+            "Iltimos, to'liq va mazmunli javob yozing!",
+            parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=f"🔄 Qayta urinish",callback_data=f"ielts_{section}")]]))
+        await state.clear(); return
+
+    if section=="essay":
+        if not message.text:
+            await message.answer("✍️ Matn yuboring!"); return
+        # Essay - o'zbekcha bo'lishi shart
+        if not is_uzbek_text(message.text):
+            try: db.save_answer(uid,q_id,False)
+            except: pass
+            await message.answer(
+                "❌ <b>0 coin!</b>\n\nInsho <b>O'ZBEK TILIDA</b> yozilishi kerak!\n"
+                "Iltimos, o'zbek tilida qayta yozing.",
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                    InlineKeyboardButton(text="🔄 Qayta yozish",callback_data=f"ielts_{section}")]]))
+            await state.clear(); return
+        await message.answer("⏳ AI tahlil qilmoqda...")
+        prompt = (f"Siz o'zbek tili insho baholovchisisiz. O'ZBEK TILIDA baholang:\n\n{message.text}\n\n"
+                  f"Baholash mezonlari (har biri 0-10):\n"
+                  f"1. Mavzuga mosligi\n2. Kirish-rivojlanish-xulosa tuzilishi\n"
+                  f"3. Argumentlar sifati\n4. Til boyligi va uslub\n5. Grammatika\n\n"
+                  f"Umumiy baho: X/10\n"
+                  f"Kuchli tomonlari: ...\nYaxshilash kerak: ...\n"
+                  f"Faqat raqamli baho: BAHO:X")
+
+    elif section=="writing":
         if not message.text:
             await message.answer("✍️ Matn yuboring!"); return
         await message.answer("⏳ AI tahlil qilmoqda...")
-        if section=="writing":
-            prompt=f"Siz IELTS Writing baholovchisiz. O'ZBEK TILIDA baholang:\n\n{message.text}\n\n1.Task Achievement 2.Coherence 3.Lexical Resource 4.Grammar\n\nBand Score: X.X/9.0\n3 ta tavsiya."
+        prompt = (f"Siz IELTS Academic Writing baholovchisisiz. O'ZBEK TILIDA baholang:\n\n{message.text}\n\n"
+                  f"1.Task Achievement 2.Coherence & Cohesion 3.Lexical Resource 4.Grammatical Range\n\n"
+                  f"Band Score: X.X/9.0\nKuchli tomonlari: ...\n3 ta yaxshilash tavsiyasi:\n"
+                  f"Faqat raqam: BAND:X.X")
+
+    elif section in ["speaking","listening"]:
+        if message.voice:
+            await message.answer("⏳ Tahlil qilinmoqda...")
+            prompt = (f"Siz IELTS {section.capitalize()} baholovchisisiz. O'ZBEK TILIDA baholang.\n"
+                      f"Foydalanuvchi ovozli xabar yubordi.\nUmumiy tavsiyalar bering.\n"
+                      f"Band Score: X.X/9.0\nFaqat raqam: BAND:X.X")
+        elif message.text:
+            await message.answer("⏳ AI tahlil qilmoqda...")
+            prompt = (f"Siz IELTS {section.capitalize()} baholovchisisiz. O'ZBEK TILIDA baholang:\n\n"
+                      f"{message.text}\n\nBand Score: X.X/9.0. Tavsiyalar bering.\n"
+                      f"Faqat raqam: BAND:X.X")
         else:
-            prompt=f"Siz akademik insho mutaxassisisiz. O'ZBEK TILIDA tahlil qiling:\n\n{message.text}\n\n1.Kirish 2.Argumentlar 3.Xulosa 4.Uslub 5.Grammatika\n\nUmumiy baho: X/10. 5 ta tavsiya."
+            await message.answer("🎙 Ovozli xabar yoki matn yuboring!"); return
     else:
         await message.answer("❓ Noma'lum bo'lim."); return
-    analysis=await ai_req(prompt)
-    band_score=parse_band(analysis)
-    earned=round(coins*(band_score/9.0),1) if band_score else round(coins*0.5,1)
-    db.add_coins(uid,earned)
-    try: db.save_answer(uid,q_id,True)
+
+    analysis = await ai_req(prompt)
+
+    # AI javobidan ball ajratish
+    earned = 0
+    band_score = None
+    score_10 = None
+
+    # Essay uchun BAHO:X formatini qidirish
+    if section == "essay":
+        import re as _re
+        m = _re.search(r"BAHO[:\s]+(\d+(?:\.\d+)?)", analysis, _re.IGNORECASE)
+        if m:
+            try:
+                score_10 = float(m.group(1))
+                if score_10 > 10: score_10 = 10
+                earned = round(coins * (score_10/10), 1)
+            except: pass
+        if not score_10:
+            # Eski usul
+            m2 = _re.search(r"(\d+(?:\.\d+)?)\s*/\s*10", analysis)
+            if m2:
+                try:
+                    score_10 = float(m2.group(1))
+                    earned = round(coins * (score_10/10), 1)
+                except: pass
+        if not score_10:
+            earned = round(coins * 0.3, 1)  # minimal ball
+    else:
+        # BAND:X.X formatini qidirish
+        import re as _re
+        m = _re.search(r"BAND[:\s]+(\d+(?:\.\d+)?)", analysis, _re.IGNORECASE)
+        if m:
+            try:
+                band_score = float(m.group(1))
+                if band_score > 9: band_score = 9
+                earned = round(coins * (band_score/9.0), 1)
+            except: pass
+        if not band_score:
+            band_score = parse_band(analysis)
+            if band_score:
+                earned = round(coins * (band_score/9.0), 1)
+        if not band_score:
+            earned = round(coins * 0.3, 1)
+
+    # Minimal sifat tekshirish - agar band 3 dan past bo'lsa
+    if band_score and band_score < 3.0:
+        earned = 0
+    if score_10 and score_10 < 3.0:
+        earned = 0
+
+    db.add_coins(uid, earned)
+    try: db.save_answer(uid, q_id, earned > 0)
     except: pass
-    st=f"\n🎯 Band Score: <b>{band_score}/9.0</b>" if band_score else ""
-    await message.answer(f"🤖 <b>AI Tahlil:</b>\n\n{analysis}{st}\n\n💰 +{earned} coin (max {coins})",
-        parse_mode="HTML",reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+
+    if section == "essay":
+        score_text = f"\n📊 Baho: <b>{score_10}/10</b>" if score_10 else ""
+    else:
+        score_text = f"\n🎯 Band Score: <b>{band_score}/9.0</b>" if band_score else ""
+
+    coin_text = f"💰 +{earned} coin" if earned > 0 else "💰 0 coin (sifat past)"
+
+    await message.answer(
+        f"🤖 <b>AI Tahlil:</b>\n\n{analysis}{score_text}\n\n{coin_text} (max {coins})",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=f"➡️ Keyingi {section.upper()}",callback_data=f"ielts_{section}")]]))
     await state.clear()
 
@@ -914,34 +1120,48 @@ async def list_questions(message: types.Message):
     await message.answer(text,parse_mode="HTML")
 
 @dp.message(F.text=="🗑 Savol o'chirish")
-async def delete_prompt(message: types.Message):
+async def delete_prompt(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
-    await message.answer("🗑 O'chiriladigan savol ID sini yuboring:")
+    await state.set_state(AdminStates.waiting_edit_id)
+    await state.update_data(edit_action="delete")
+    await message.answer("🗑 O'chiriladigan savol <b>ID</b> sini yuboring:\n<i>/cancel — bekor</i>", parse_mode="HTML")
 
 @dp.message(F.text=="✏️ Savol tahrirlash")
-async def edit_prompt(message: types.Message):
+async def edit_prompt(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
-    await message.answer("✏️ Tahrirlanadigan savol ID sini yuboring:")
+    await state.set_state(AdminStates.waiting_edit_id)
+    await state.update_data(edit_action="edit")
+    await message.answer("✏️ Tahrirlanadigan savol <b>ID</b> sini yuboring:\n<i>/cancel — bekor</i>", parse_mode="HTML")
 
-@dp.message(F.text.regexp(r'^\d+$'))
+@dp.message(AdminStates.waiting_edit_id)
 async def handle_id_input(message: types.Message, state: FSMContext):
     if not is_admin(message.from_user.id): return
-    q_id=int(message.text); q=db.get_question_by_id(q_id)
+    if not message.text or not message.text.strip().isdigit():
+        await message.answer("⚠️ Faqat raqam yuboring!"); return
+    q_id=int(message.text.strip()); q=db.get_question_by_id(q_id)
+    data=await state.get_data(); action=data.get("edit_action","edit")
+    await state.clear()
     if not q:
         await message.answer(f"❌ #{q_id} topilmadi."); return
     _,q_text,q_type,options,correct,coins,cat,diff,explanation,image_id,tl=q
     short=q_text[:60]+"..." if len(q_text)>60 else q_text
-    kb=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🗑 O'chirish",callback_data=f"del_{q_id}"),InlineKeyboardButton(text="❌ Bekor",callback_data="del_cancel")],
-        [InlineKeyboardButton(text="✏️ Savol matnini o'zgartir",callback_data=f"edf_{q_id}_text")],
-        [InlineKeyboardButton(text="📋 Variantlarni o'zgartir",callback_data=f"edf_{q_id}_options")],
-        [InlineKeyboardButton(text="✅ To'g'ri javobni o'zgartir",callback_data=f"edf_{q_id}_correct")],
-        [InlineKeyboardButton(text="💰 Coinni o'zgartir",callback_data=f"edf_{q_id}_coins")],
-        [InlineKeyboardButton(text="💡 Tavsifni o'zgartir",callback_data=f"edf_{q_id}_explanation")],
-        [InlineKeyboardButton(text="📂 Kategoriyani o'zgartir",callback_data=f"edf_{q_id}_category")],
-        [InlineKeyboardButton(text="⏰ Vaqt limitini o'zgartir",callback_data=f"edf_{q_id}_time_limit")],
-        [InlineKeyboardButton(text="🖼 Rasmni o'zgartir",callback_data=f"edf_{q_id}_image_id")]])
-    await message.answer(f"#{q_id} {DIFFICULTY_ICONS.get(diff,'🟡')} [{cat}]\n❓ {short}\n💰 {coins} coin\nTur: {q_type}",reply_markup=kb)
+    if action=="delete":
+        kb=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Ha, o'chirish",callback_data=f"del_{q_id}"),
+             InlineKeyboardButton(text="❌ Bekor",callback_data="del_cancel")]])
+        await message.answer(f"#{q_id} {DIFFICULTY_ICONS.get(diff,'🟡')} [{cat}]\n❓ {short}\n💰 {coins} coin\n\nO'chirilsinmi?",reply_markup=kb)
+    else:
+        kb=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Savol matnini o'zgartir",callback_data=f"edf_{q_id}_text")],
+            [InlineKeyboardButton(text="📋 Variantlarni o'zgartir",callback_data=f"edf_{q_id}_options")],
+            [InlineKeyboardButton(text="✅ To'g'ri javobni o'zgartir",callback_data=f"edf_{q_id}_correct")],
+            [InlineKeyboardButton(text="💰 Coinni o'zgartir",callback_data=f"edf_{q_id}_coins")],
+            [InlineKeyboardButton(text="💡 Tavsifni o'zgartir",callback_data=f"edf_{q_id}_explanation")],
+            [InlineKeyboardButton(text="📂 Kategoriyani o'zgartir",callback_data=f"edf_{q_id}_category")],
+            [InlineKeyboardButton(text="⏰ Vaqt limitini o'zgartir",callback_data=f"edf_{q_id}_time_limit")],
+            [InlineKeyboardButton(text="🖼 Rasmni o'zgartir",callback_data=f"edf_{q_id}_image_id")],
+            [InlineKeyboardButton(text="❌ Bekor",callback_data="del_cancel")]])
+        await message.answer(f"#{q_id} {DIFFICULTY_ICONS.get(diff,'🟡')} [{cat}]\n❓ {short}\n💰 {coins} coin\nTur: {q_type}",reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("edf_"))
 async def edit_field(callback: types.CallbackQuery, state: FSMContext):
@@ -1024,7 +1244,7 @@ async def get_question_text(message: types.Message, state: FSMContext):
         await state.update_data(q_text=accumulated)
         if qtype=="reading":
             await state.set_state(AdminStates.waiting_correct_answer)
-            await message.answer("✅ To'g'ri javoblarni kiriting (har biri yangi qatorda):")
+            await message.answer("✅ To'g'ri javoblarni kiriting (har biri yangi qatorda):\n\n<i>Savol matnini shunday formatlang:\nMatn (passage)\n---\n1. Savol?\n2. Savol?</i>",parse_mode="HTML")
         elif qtype in IELTS_TYPES:
             await state.update_data(correct="",options="")
             await state.set_state(AdminStates.waiting_coin_reward)
@@ -1133,13 +1353,20 @@ async def get_explanation(message: types.Message, state: FSMContext):
     explanation="" if message.text.strip()=="-" else message.text.strip()
     await state.update_data(explanation=explanation)
     await state.set_state(AdminStates.waiting_image)
-    await message.answer("🖼 Rasm (ixtiyoriy):\n• Rasm yuklang  • URL yuboring  • <b>'-'</b> = kerak emas",parse_mode="HTML")
+    data=await state.get_data(); qtype=data.get("q_type","")
+    if qtype=="listening":
+        await message.answer("🎧 Audio fayl yuklang (listening uchun):\n• Audio/ovoz fayli yuklang\n• <b>'-'</b> = kerak emas",parse_mode="HTML")
+    else:
+        await message.answer("🖼 Rasm (ixtiyoriy):\n• Rasm yuklang  • URL yuboring  • <b>'-'</b> = kerak emas",parse_mode="HTML")
 
 @dp.message(AdminStates.waiting_image)
 async def get_image(message: types.Message, state: FSMContext):
     image_id=""
     if message.text and message.text.strip()=="-": image_id=""
     elif message.photo: image_id=message.photo[-1].file_id
+    elif message.audio: image_id=message.audio.file_id
+    elif message.voice: image_id=message.voice.file_id
+    elif message.document: image_id=message.document.file_id
     elif message.text and message.text.startswith("http"): image_id=message.text.strip()
     await state.update_data(image_id=image_id)
     data=await state.get_data()
@@ -1364,15 +1591,15 @@ async def save_sub_salary(message: types.Message, state: FSMContext):
 async def payment_menu(message: types.Message):
     if not is_admin(message.from_user.id): return
     kb=InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💰 Moash to'lash",callback_data="pay_salary")],
-        [InlineKeyboardButton(text="🏆 Mukofot berish",callback_data="pay_bonus")],
-        [InlineKeyboardButton(text="⚠️ Jarima solish",callback_data="pay_fine")]])
+        [InlineKeyboardButton(text="💰 Moash to'lash",callback_data="payact_salary")],
+        [InlineKeyboardButton(text="🏆 Mukofot berish",callback_data="payact_bonus")],
+        [InlineKeyboardButton(text="⚠️ Jarima solish",callback_data="payact_fine")]])
     await message.answer("💰 <b>Mukofot / Jarima</b>",parse_mode="HTML",reply_markup=kb)
 
-@dp.callback_query(F.data.startswith("pay_"))
+@dp.callback_query(F.data.startswith("payact_"))
 async def pay_action(callback: types.CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id): return
-    action = callback.data[4:]  # salary, bonus, fine
+    action = callback.data[7:]  # salary, bonus, fine
     await state.update_data(pay_action=action)
     labels = {"salary": "💰 Moash", "bonus": "🏆 Mukofot", "fine": "⚠️ Jarima"}
     label = labels.get(action, action)
@@ -1914,8 +2141,339 @@ async def check_sub_admin_terms():
             except: pass
 
 async def main():
+    # Bot buyruqlari ro'yxatini o'rnatish (/ bosilganda chiqadi)
+    await bot.set_my_commands([
+        types.BotCommand(command="start", description="🚀 Botni boshlash"),
+        types.BotCommand(command="savol", description="🎯 Savol olish (guruhda ham ishlaydi)"),
+        types.BotCommand(command="reyting", description="🏆 Reyting ko'rish"),
+        types.BotCommand(command="profil", description="👤 Profilim"),
+        types.BotCommand(command="referal", description="🔗 Referal havolam"),
+        types.BotCommand(command="skip", description="⏭ Savolni o'tkazish (guruh admini)"),
+        types.BotCommand(command="stat", description="📊 Guruh statistikasi"),
+        types.BotCommand(command="cancel", description="❌ Amalni bekor qilish"),
+    ])
     asyncio.create_task(check_sub_admin_terms())
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 if __name__=="__main__":
     asyncio.run(main())
+
+# ═══════════════ GURUH HANDLERLARI ═══════════════
+
+# Bot guruhga qo'shilganda
+@dp.my_chat_member()
+async def on_chat_member_update(event: types.ChatMemberUpdated):
+    if event.chat.type in ("group", "supergroup"):
+        if event.new_chat_member.status == "member" or event.new_chat_member.status == "administrator":
+            db.add_group(event.chat.id, event.chat.title or "")
+            for admin_id in ADMIN_IDS:
+                try:
+                    await bot.send_message(admin_id,
+                        f"✅ <b>Bot guruhga qo'shildi!</b>\n\n"
+                        f"📌 Guruh: <b>{event.chat.title}</b>\n"
+                        f"🆔 ID: <code>{event.chat.id}</code>\n\n"
+                        f"Admin paneldan '👥 Guruhlar' bo'limiga kiring.",
+                        parse_mode="HTML")
+                except: pass
+        elif event.new_chat_member.status in ("left", "kicked"):
+            db.remove_group(event.chat.id)
+
+# /savol buyrug'i — guruhda savol chiqarish
+@dp.message(Command("savol"))
+async def group_question_cmd(message: types.Message):
+    if message.chat.type not in ("group", "supergroup"): return
+    chat_id = message.chat.id
+
+    # Aktiv savol bormi?
+    aq = db.get_group_question(chat_id)
+    if aq:
+        await message.answer("⏳ Hali oldingi savol tugamagan! /skip yozing yoki javob bering.")
+        return
+
+    category = db.get_group_category(chat_id)
+    # Guruhda barcha foydalanuvchilar uchun umumiy savol — answered_ids hisoblanmasin
+    cur = db.get_conn().cursor()
+    conditions = ["is_active=1", "is_approved=1", "q_type IN ('test','open')"]
+    params = []
+    if category and category != "Barchasi":
+        conditions.append("category=%s")
+        params.append(category)
+    where = " AND ".join(conditions)
+    cur.execute(f"SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1", params)
+    q = cur.fetchone()
+
+    if not q:
+        await message.answer("😔 Bu kategoriyada savollar yo'q.")
+        return
+
+    q_id, q_text, q_type, options, correct, coins, cat, diff, explanation, image_id = q
+    db.set_group_question(chat_id, q_id, correct, coins)
+
+    diff_icon = DIFFICULTY_ICONS.get(diff, "🟡")
+    me = await bot.get_me()
+    join_link = f"https://t.me/{me.username}?start=ref0"
+
+    if q_type == "test":
+        shuffled_opts, new_correct = shuffle_options(options, correct)
+        opts_list = shuffled_opts.split("|")
+        # To'g'ri javobni state'ga saqlaymiz
+        db.set_group_question(chat_id, q_id, new_correct, coins)
+        header = (f"🧠 <b>GURUH SAVOLI</b>  {diff_icon}  📂 {cat}\n"
+                  f"💰 To'g'ri javob: <b>+{coins} coin</b>\n\n"
+                  f"❓ <b>{q_text}</b>\n\n")
+        for i, opt in enumerate(opts_list):
+            header += f"{chr(65+i)}. {opt}\n"
+        header += f"\n✍️ <b>A / B / C / D</b> deb yozing!\n👉 Coin olish uchun: <a href='{join_link}'>Botga qo'shiling</a>"
+        await message.answer(header, parse_mode="HTML")
+    else:
+        header = (f"🧠 <b>GURUH SAVOLI</b>  {diff_icon}  📂 {cat}\n"
+                  f"💰 To'g'ri javob: <b>+{coins} coin</b>\n\n"
+                  f"❓ <b>{q_text}</b>\n\n"
+                  f"✍️ Javobingizni yozing!\n👉 Coin olish uchun: <a href='{join_link}'>Botga qo'shiling</a>")
+        await message.answer(header, parse_mode="HTML")
+
+# /skip — guruhda savolni o'tkazish (faqat admin)
+@dp.message(Command("skip"))
+async def group_skip_cmd(message: types.Message):
+    if message.chat.type not in ("group", "supergroup"): return
+    member = await bot.get_chat_member(message.chat.id, message.from_user.id)
+    if member.status not in ("administrator", "creator") and not is_admin(message.from_user.id):
+        await message.answer("❌ Faqat adminlar savol o'tkaza oladi.")
+        return
+    aq = db.get_group_question(message.chat.id)
+    if not aq:
+        await message.answer("Hozir aktiv savol yo'q.")
+        return
+    _, q_id, correct, coins, _, _ = aq
+    db.close_group_question(message.chat.id)
+    await message.answer(f"⏭ Savol o'tkazildi.\n✅ To'g'ri javob: <b>{correct}</b>", parse_mode="HTML")
+
+# /reyting — guruh reytingi
+@dp.message(Command("reyting"))
+async def group_leaderboard_cmd(message: types.Message):
+    if message.chat.type not in ("group", "supergroup"): return
+    top = db.get_group_leaderboard(message.chat.id, 10)
+    if not top:
+        await message.answer("🏆 Hali hech kim javob bermagan!")
+        return
+    medals = ["🥇", "🥈", "🥉"]
+    text = f"🏆 <b>{message.chat.title} — Reyting</b>\n\n"
+    for i, (uid, fname, uname, count) in enumerate(top):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        name = fname or uname or str(uid)
+        text += f"{medal} <b>{name}</b> — {count} ta to'g'ri\n"
+    await message.answer(text, parse_mode="HTML")
+
+# /stat — guruh statistikasi
+@dp.message(Command("stat"))
+async def group_stat_cmd(message: types.Message):
+    if message.chat.type not in ("group", "supergroup"): return
+    s = db.get_group_stats(message.chat.id)
+    await message.answer(
+        f"📊 <b>{message.chat.title} statistikasi</b>\n\n"
+        f"👥 Ishtirokchilar: <b>{s['players']}</b>\n"
+        f"📝 Jami javoblar: <b>{s['total']}</b>\n"
+        f"✅ To'g'ri: <b>{s['correct']}</b>",
+        parse_mode="HTML")
+
+# Guruhda xabar kelganda — javob tekshirish
+@dp.message(F.chat.type.in_({"group", "supergroup"}))
+async def handle_group_message(message: types.Message):
+    if not message.text: return
+    if message.text.startswith("/"): return
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    aq = db.get_group_question(chat_id)
+    if not aq: return
+
+    _, q_id, correct, coins, asked_at, is_open = aq
+    if not is_open: return
+
+    # Allaqachon javob berganligi tekshirish
+    if db.already_answered_group(chat_id, user_id, q_id): return
+
+    # Botga a'zoligini tekshirish
+    user = db.get_user(user_id)
+    me = await bot.get_me()
+    join_link = f"https://t.me/{me.username}?start=ref{user_id}"
+
+    if not user:
+        try:
+            await message.reply(
+                f"👋 <b>{message.from_user.first_name}</b>, coin olish uchun avval botga qo'shiling!\n"
+                f"👉 <a href='{join_link}'>Botga o'tish</a>",
+                parse_mode="HTML")
+        except: pass
+        return
+
+    # Javobni tekshirish
+    is_correct = check_answer(message.text, correct)
+
+    if is_correct:
+        db.save_group_answer(chat_id, user_id, q_id, True)
+        db.add_coins(user_id, coins)
+        ns = db.update_streak(user_id, True)
+        bonus = streak_bonus(ns)
+        earned = round(coins * bonus, 1)
+        if bonus > 1:
+            db.add_coins(user_id, earned - coins)
+
+        db.close_group_question(chat_id)
+
+        text = (f"✅ <b>{message.from_user.first_name}</b> to'g'ri javob berdi!\n"
+                f"💰 +{earned} coin"
+                + (f" (🔥x{bonus})" if bonus > 1 else "") +
+                f"\n\n📊 Keyingi savol: /savol")
+
+        ud = db.get_user(user_id)
+        if ud:
+            rank = db.get_user_rank(user_id)
+            text += f"\n🏆 Umumiy reyting: #{rank}"
+
+        await message.reply(text, parse_mode="HTML")
+
+    else:
+        db.save_group_answer(chat_id, user_id, q_id, False)
+        try:
+            await message.reply(f"❌ Noto'g'ri!", parse_mode="HTML")
+        except: pass
+
+# ═══════════════ ADMIN — GURUHLAR BOSHQARUVI ═══════════════
+@dp.message(F.text=="👥 Guruhlar")
+async def admin_groups(message: types.Message):
+    if not is_admin(message.from_user.id): return
+    groups = db.get_all_groups()
+    if not groups:
+        text = "👥 <b>Hali hech qanday guruh yo'q</b>\n\nBotni guruhga qo'shing."
+    else:
+        text = f"👥 <b>Guruhlar ({len(groups)} ta)</b>\n\n"
+        for g in groups:
+            chat_id, title, is_main, is_active, added_at, category = g
+            main_icon = "⭐" if is_main else "•"
+            text += f"{main_icon} <b>{title}</b>\n   🆔 <code>{chat_id}</code>  📂 {category}\n\n"
+
+    buttons = []
+    for g in groups:
+        chat_id, title, is_main, is_active, added_at, category = g
+        star = "⭐" if is_main else ""
+        buttons.append([InlineKeyboardButton(
+            text=f"{star}📌 {title[:30]}",
+            callback_data=f"grp_manage_{chat_id}")])
+    buttons.append([InlineKeyboardButton(text="🔄 Yangilash", callback_data="grp_refresh")])
+    await message.answer(text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons) if buttons else None)
+
+@dp.callback_query(F.data=="grp_refresh")
+async def grp_refresh(callback: types.CallbackQuery):
+    groups = db.get_all_groups()
+    text = f"👥 <b>Guruhlar ({len(groups)} ta)</b>\n\n"
+    for g in groups:
+        chat_id, title, is_main, is_active, added_at, category = g
+        main_icon = "⭐" if is_main else "•"
+        text += f"{main_icon} <b>{title}</b>  🆔 <code>{chat_id}</code>  📂 {category}\n"
+    buttons = [[InlineKeyboardButton(
+        text=f"{'⭐' if g[2] else ''}📌 {g[1][:30]}",
+        callback_data=f"grp_manage_{g[0]}")] for g in groups]
+    buttons.append([InlineKeyboardButton(text="🔄 Yangilash", callback_data="grp_refresh")])
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    except: pass
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("grp_manage_"))
+async def grp_manage(callback: types.CallbackQuery):
+    chat_id = int(callback.data[11:])
+    g = db.get_group(chat_id)
+    if not g:
+        await callback.answer("Guruh topilmadi!"); return
+    _, title, is_main, is_active, added_at, category = g
+    text = (f"📌 <b>{title}</b>\n🆔 <code>{chat_id}</code>\n"
+            f"📂 Kategoriya: <b>{category}</b>\n"
+            f"⭐ Asosiy: <b>{'Ha' if is_main else 'Yoq'}</b>")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⭐ Asosiy guruh qilish", callback_data=f"grp_setmain_{chat_id}")],
+        [InlineKeyboardButton(text="📂 Kategoriya o'zgartirish", callback_data=f"grp_setcat_{chat_id}")],
+        [InlineKeyboardButton(text="📢 Shu guruhga savol yuborish", callback_data=f"grp_sendq_{chat_id}")],
+        [InlineKeyboardButton(text="❌ Guruhdan chiqish", callback_data=f"grp_leave_{chat_id}")],
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="grp_refresh")]])
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("grp_setmain_"))
+async def grp_setmain(callback: types.CallbackQuery):
+    chat_id = int(callback.data[12:])
+    db.set_main_group(chat_id)
+    await callback.answer("⭐ Asosiy guruh belgilandi!", show_alert=True)
+    await grp_manage(callback)
+
+@dp.callback_query(F.data.startswith("grp_setcat_"))
+async def grp_setcat(callback: types.CallbackQuery):
+    chat_id = int(callback.data[11:])
+    cats = db.get_categories()
+    buttons = [[InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"grp_cat_{chat_id}_{cat}")] for cat in cats]
+    buttons.append([InlineKeyboardButton(text="🌐 Barchasi", callback_data=f"grp_cat_{chat_id}_Barchasi")])
+    buttons.append([InlineKeyboardButton(text="🔙 Orqaga", callback_data=f"grp_manage_{chat_id}")])
+    await callback.message.edit_text("📂 Guruh uchun kategoriya tanlang:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("grp_cat_"))
+async def grp_cat_chosen(callback: types.CallbackQuery):
+    parts = callback.data[8:].split("_", 1)
+    chat_id, category = int(parts[0]), parts[1]
+    db.set_group_category(chat_id, category)
+    await callback.answer(f"✅ Kategoriya: {category}", show_alert=True)
+    await grp_manage(callback)
+
+@dp.callback_query(F.data.startswith("grp_sendq_"))
+async def grp_sendq(callback: types.CallbackQuery):
+    chat_id = int(callback.data[10:])
+    category = db.get_group_category(chat_id)
+    aq = db.get_group_question(chat_id)
+    if aq:
+        await callback.answer("⏳ Guruhda hali aktiv savol bor!", show_alert=True); return
+    cur = db.get_conn().cursor()
+    conditions = ["is_active=1", "is_approved=1", "q_type IN ('test','open')"]
+    params = []
+    if category and category != "Barchasi":
+        conditions.append("category=%s"); params.append(category)
+    where = " AND ".join(conditions)
+    cur.execute(f"SELECT id, text, q_type, options, correct, coins, category, difficulty FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1", params)
+    q = cur.fetchone()
+    if not q:
+        await callback.answer("😔 Savollar yo'q!", show_alert=True); return
+    q_id, q_text, q_type, options, correct, coins, cat, diff = q
+    db.set_group_question(chat_id, q_id, correct, coins)
+    diff_icon = DIFFICULTY_ICONS.get(diff, "🟡")
+    me = await bot.get_me()
+    join_link = f"https://t.me/{me.username}?start=ref0"
+    if q_type == "test":
+        shuffled_opts, new_correct = shuffle_options(options, correct)
+        db.set_group_question(chat_id, q_id, new_correct, coins)
+        opts_list = shuffled_opts.split("|")
+        header = (f"🧠 <b>GURUH SAVOLI</b>  {diff_icon}  📂 {cat}\n"
+                  f"💰 To'g'ri javob: <b>+{coins} coin</b>\n\n❓ <b>{q_text}</b>\n\n")
+        for i, opt in enumerate(opts_list):
+            header += f"{chr(65+i)}. {opt}\n"
+        header += f"\n✍️ <b>A / B / C / D</b> deb yozing!\n👉 <a href='{join_link}'>Botga qo'shiling</a>"
+    else:
+        header = (f"🧠 <b>GURUH SAVOLI</b>  {diff_icon}  📂 {cat}\n"
+                  f"💰 To'g'ri javob: <b>+{coins} coin</b>\n\n❓ <b>{q_text}</b>\n\n"
+                  f"✍️ Javobingizni yozing!\n👉 <a href='{join_link}'>Botga qo'shiling</a>")
+    try:
+        await bot.send_message(chat_id, header, parse_mode="HTML")
+        await callback.answer("✅ Savol yuborildi!", show_alert=True)
+    except Exception as e:
+        await callback.answer(f"❌ Xato: {e}", show_alert=True)
+
+@dp.callback_query(F.data.startswith("grp_leave_"))
+async def grp_leave(callback: types.CallbackQuery):
+    chat_id = int(callback.data[10:])
+    try:
+        await bot.leave_chat(chat_id)
+    except: pass
+    db.remove_group(chat_id)
+    await callback.message.edit_text("✅ Guruhdan chiqildi.")
+    await callback.answer()
