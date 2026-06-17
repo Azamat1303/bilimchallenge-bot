@@ -599,20 +599,20 @@ class Database:
         cur = self.get_conn().cursor()
         cur.execute("UPDATE pending_questions SET status='rejected' WHERE id=%s", (pq_id,))
 
-db = Database()
+
 
 
     # ── GROUPS ───────────────────────────────────────────────────────────────
 def create_group_tables(self):
-        cur = self.get_conn().cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS groups (
-                chat_id     BIGINT PRIMARY KEY,
-                title       TEXT DEFAULT '',
-                is_main     INTEGER DEFAULT 0,
-                is_active   INTEGER DEFAULT 1,
-                added_at    TEXT DEFAULT CURRENT_TIMESTAMP,
-                category    TEXT DEFAULT 'Barchasi'
+cur = self.get_conn().cursor()
+cur.execute("""
+     CREATE TABLE IF NOT EXISTS groups (
+        chat_id     BIGINT PRIMARY KEY,
+        title       TEXT DEFAULT '',
+        is_main     INTEGER DEFAULT 0,
+         is_active   INTEGER DEFAULT 1,
+        added_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+        category    TEXT DEFAULT 'Barchasi'
             )
         """)
         cur.execute("""
@@ -625,6 +625,7 @@ def create_group_tables(self):
                 answered_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+db = Database()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS group_active_questions (
                 chat_id     BIGINT PRIMARY KEY,
