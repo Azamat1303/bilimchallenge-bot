@@ -603,7 +603,7 @@ db = Database()
 
 
     # ── GROUPS ───────────────────────────────────────────────────────────────
-    def create_group_tables(self):
+def create_group_tables(self):
         cur = self.get_conn().cursor()
         cur.execute("""
             CREATE TABLE IF NOT EXISTS groups (
