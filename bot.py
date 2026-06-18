@@ -84,11 +84,21 @@ class SubAdminStates(StatesGroup):
 class UserStates(StatesGroup):
     answering_open=State(); sending_feedback=State(); answering_premium=State()
     answering_ielts=State(); ai_chat=State(); ai_chat_confirm_debt=State()
+    duel_answering=State(); duel_waiting=State()
+
+LEAGUE_ICONS = {
+    "bronza": "🥉", "kumush": "🥈", "oltin": "🥇",
+    "platina": "💎", "olmos": "💠"
+}
+LEAGUE_POINTS = {
+    "bronza": 0, "kumush": 80, "oltin": 200, "platina": 500, "olmos": 1000
+}
 
 def main_menu(uid):
     b=[[KeyboardButton(text="🎯 Savol olish"),KeyboardButton(text="🏆 Reyting")],
        [KeyboardButton(text="👤 Profilim"),KeyboardButton(text="ℹ️ Yordam")],
        [KeyboardButton(text="📝 Taklif/Shikoyat"),KeyboardButton(text="🎓 IELTS")],
+       [KeyboardButton(text="⚔️ Duel"),KeyboardButton(text="🏅 Liga")],
        [KeyboardButton(text="🤖 AI Chat")]]
     if is_admin(uid): b.append([KeyboardButton(text="⚙️ Admin Panel")])
     if is_sub_admin(uid) and not is_admin(uid): b.append([KeyboardButton(text="🛡 Yordamchi Admin Panel")])
@@ -187,6 +197,11 @@ async def cmd_start(message: types.Message):
     ref_msg=""
     if referrer_id:
         ref_msg="\n\n🎁 <b>Referal orqali qo'shildingiz!</b>\nDo'stingiz <b>+30 coin</b> oldi!"
+    me = await bot.get_me()
+    # Botni guruhga qo'shish havolasi
+    add_to_group_url = f"https://t.me/{me.username}?startgroup=start"
+    start_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="👥 Botni guruhga qo'shish", url=add_to_group_url)]])
     await message.answer(
         f"🧠 <b>BilimChallenge</b> ga xush kelibsiz, {user.first_name}!\n\n"
         "🎯 Savollarga javob bering\n💰 Coinlar to'plang\n"
@@ -194,6 +209,9 @@ async def cmd_start(message: types.Message):
         "👥 Do'stlarni taklif qiling — har biri uchun +30 coin!\n\n"
         "Boshlash uchun <b>Savol olish</b>!"+ref_msg,
         parse_mode="HTML", reply_markup=main_menu(user.id))
+    await message.answer(
+        "👇 Botni guruhingizga qo'shing — guruhda savol musobaqasi o'tkazing!",
+        reply_markup=start_kb)
 
 @dp.message(Command("cancel"))
 @dp.message(Command("stop"))
@@ -921,6 +939,10 @@ async def show_profile(message: types.Message):
 
 @dp.message(F.text=="ℹ️ Yordam")
 async def show_help(message: types.Message):
+    me = await bot.get_me()
+    add_to_group_url = f"https://t.me/{me.username}?startgroup=start"
+    help_kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="👥 Botni guruhga qo'shish", url=add_to_group_url)]])
     await message.answer(
         "ℹ️ <b>BilimChallenge — Yordam</b>\n\n"
         "🎯 Savol olish — kategoriya va tur tanlang\n"
@@ -932,8 +954,9 @@ async def show_help(message: types.Message):
         "❌ Noto'g'ri — 30% jarima\n"
         "⏰ Vaqt tugasa — 45% jarima\n"
         "🔥x3=1.5x  🔥🔥x5=2.0x  🔥🔥🔥x10=3.0x\n"
-        "🟢Oson=30s  🟡O'rta=60s  🔴Qiyin=90s",
-        parse_mode="HTML")
+        "🟢Oson=30s  🟡O'rta=60s  🔴Qiyin=90s\n\n"
+        "👥 Guruhda musobaqa o'tkaring!",
+        parse_mode="HTML", reply_markup=help_kb)
 
 @dp.message(F.text=="📝 Taklif/Shikoyat")
 async def feedback_start(message: types.Message, state: FSMContext):
@@ -2476,4 +2499,375 @@ async def grp_leave(callback: types.CallbackQuery):
     except: pass
     db.remove_group(chat_id)
     await callback.message.edit_text("✅ Guruhdan chiqildi.")
+    await callback.answer()
+
+# ═══════════════ DUEL TIZIMI ═══════════════
+@dp.message(F.text=="⚔️ Duel")
+async def duel_menu(message: types.Message):
+    uid = message.from_user.id
+    user = db.get_user(uid)
+    if not user:
+        await message.answer("Avval /start bosing!"); return
+
+    # Aktiv duel bormi?
+    active = db.get_active_duel(uid)
+    if active:
+        await message.answer("⚔️ Sizda aktiv duel bor! Avval uni yakunlang.", reply_markup=main_menu(uid)); return
+
+    # Kutayotgan duel bormi?
+    pending = db.get_pending_duel(uid)
+    if pending:
+        duel_id = pending[0]
+        ch_id = pending[1]
+        ch_user = db.get_user(ch_id)
+        ch_name = ch_user[2] if ch_user else str(ch_id)
+        bet = pending[3]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"duel_accept_{duel_id}"),
+            InlineKeyboardButton(text="❌ Rad etish", callback_data=f"duel_decline_{duel_id}")]])
+        await message.answer(
+            f"⚔️ <b>{ch_name}</b> sizni duellga chaqirdi!\n\n"
+            f"💰 Tikish: <b>{bet} coin</b>\n"
+            f"❓ Savollar: <b>5 ta</b>\n\n"
+            f"Qabul qilasizmi?",
+            parse_mode="HTML", reply_markup=kb)
+        return
+
+    coins = round(user[3], 1)
+    stats = db.get_duel_stats(uid)
+    total = stats[0] or 0; wins = stats[1] or 0; losses = stats[2] or 0
+    text = (f"⚔️ <b>DUEL</b>\n\n"
+            f"💰 Coinlaringiz: <b>{coins}</b>\n"
+            f"🏆 G'alaba: <b>{wins}</b>  ❌ Yutqazish: <b>{losses}</b>  🤝 Durrang: <b>{total-wins-losses}</b>\n\n"
+            f"Raqib ID sini yuboring yoki top o'yinchilardan tanlang:")
+    top = db.get_leaderboard(8)
+    buttons = []
+    for t_uid, fname, uname, t_coins in top:
+        if t_uid == uid: continue
+        name = fname or uname or str(t_uid)
+        buttons.append([InlineKeyboardButton(
+            text=f"⚔️ {name} ({round(t_coins,1)} coin)",
+            callback_data=f"duel_challenge_{t_uid}_10")])
+    buttons.append([InlineKeyboardButton(text="❌ Bekor", callback_data="duel_cancel")])
+    await message.answer(text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+@dp.callback_query(F.data.startswith("duel_challenge_"))
+async def duel_challenge(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    opponent_id = int(parts[2]); bet = float(parts[3])
+    challenger_id = callback.from_user.id
+
+    if challenger_id == opponent_id:
+        await callback.answer("O'zingizga duel yuborib bo'lmaydi!", show_alert=True); return
+
+    ch_user = db.get_user(challenger_id)
+    if not ch_user or ch_user[3] < bet:
+        await callback.answer(f"Yetarli coin yo'q! Kerak: {bet}", show_alert=True); return
+
+    op_user = db.get_user(opponent_id)
+    if not op_user or op_user[3] < bet:
+        await callback.answer("Raqibda yetarli coin yo'q!", show_alert=True); return
+
+    # Aktiv duel tekshirish
+    if db.get_active_duel(challenger_id) or db.get_active_duel(opponent_id):
+        await callback.answer("Biri aktiv duelda!", show_alert=True); return
+
+    duel_id = db.create_duel(challenger_id, opponent_id, bet)
+    ch_name = ch_user[2] or str(challenger_id)
+    op_name = op_user[2] or str(opponent_id)
+
+    # Raqibga xabar
+    try:
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="✅ Qabul qilish", callback_data=f"duel_accept_{duel_id}"),
+            InlineKeyboardButton(text="❌ Rad etish", callback_data=f"duel_decline_{duel_id}")]])
+        await bot.send_message(opponent_id,
+            f"⚔️ <b>{ch_name}</b> sizni duellga chaqirdi!\n\n"
+            f"💰 Tikish: <b>{bet} coin</b>\n❓ Savollar: <b>5 ta</b>\n\n"
+            f"Qabul qilasizmi?",
+            parse_mode="HTML", reply_markup=kb)
+    except:
+        await callback.answer("Raqibga xabar yuborib bo'lmadi!", show_alert=True)
+        db.decline_duel(duel_id); return
+
+    await callback.message.edit_text(
+        f"✅ <b>{op_name}</b> ga duel so'rovi yuborildi!\n💰 Tikish: {bet} coin",
+        parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("duel_accept_"))
+async def duel_accept(callback: types.CallbackQuery, state: FSMContext):
+    duel_id = int(callback.data[12:])
+    duel = db.get_duel(duel_id)
+    if not duel or duel[4] != 'pending':
+        await callback.answer("Duel topilmadi!", show_alert=True); return
+
+    _, ch_id, op_id, bet, *_ = duel
+    if callback.from_user.id != op_id:
+        await callback.answer("Bu sizning duelingiz emas!", show_alert=True); return
+
+    # Coinlarni tekshirish
+    ch_user = db.get_user(ch_id); op_user = db.get_user(op_id)
+    if not ch_user or ch_user[3] < bet or not op_user or op_user[3] < bet:
+        await callback.answer("Yetarli coin yo'q!", show_alert=True)
+        db.decline_duel(duel_id); return
+
+    # Coinlarni bloklash (ayirish)
+    db.add_coins(ch_id, -bet); db.add_coins(op_id, -bet)
+    db.accept_duel(duel_id)
+
+    # 5 ta savol tanlash
+    q_ids = db.get_random_test_questions(5)
+    if len(q_ids) < 3:
+        await callback.answer("Yetarli savollar yo'q!", show_alert=True)
+        db.add_coins(ch_id, bet); db.add_coins(op_id, bet)
+        return
+    db.set_duel_questions(duel_id, q_ids)
+
+    ch_name = ch_user[2] or str(ch_id)
+    op_name = op_user[2] or str(op_id)
+
+    # Ikkala tomonga xabar
+    start_text = (f"⚔️ <b>DUEL BOSHLANDI!</b>\n\n"
+                  f"👤 {ch_name} vs {op_name}\n"
+                  f"💰 Tikish: <b>{bet} coin</b>  ❓ <b>{len(q_ids)} ta savol</b>\n\n"
+                  f"G'olib tikishning 2 barobarini oladi! 🏆")
+    try:
+        await bot.send_message(ch_id, start_text, parse_mode="HTML")
+    except: pass
+    await callback.message.edit_text(start_text, parse_mode="HTML")
+
+    # Birinchi savolni yuborish
+    await send_duel_question(ch_id, duel_id, state)
+    await send_duel_question(op_id, duel_id, state)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("duel_decline_"))
+async def duel_decline(callback: types.CallbackQuery):
+    duel_id = int(callback.data[13:])
+    duel = db.get_duel(duel_id)
+    if not duel: await callback.answer(); return
+    _, ch_id, op_id, *_ = duel
+    db.decline_duel(duel_id)
+    try:
+        op_user = db.get_user(op_id)
+        op_name = op_user[2] if op_user else str(op_id)
+        await bot.send_message(ch_id, f"❌ <b>{op_name}</b> duellni rad etdi.", parse_mode="HTML")
+    except: pass
+    await callback.message.edit_text("❌ Duel rad etildi.")
+    await callback.answer()
+
+@dp.callback_query(F.data=="duel_cancel")
+async def duel_cancel_cb(callback: types.CallbackQuery):
+    await callback.message.edit_text("❌ Bekor qilindi.")
+    await callback.answer()
+
+async def send_duel_question(user_id, duel_id, state=None):
+    duel = db.get_duel(duel_id)
+    if not duel: return
+    _, ch_id, op_id, bet, status, winner, ch_score, op_score, cur_q, total_q, _ = duel
+    q_ids = db.get_duel_questions(duel_id)
+
+    # Foydalanuvchi nechta javob bergan
+    answered = db.get_duel_answer_count(duel_id, user_id)
+    if answered >= len(q_ids):
+        await check_duel_finish(duel_id)
+        return
+
+    q_id = q_ids[answered]
+    q = db.get_question_by_id(q_id)
+    if not q: return
+
+    _, q_text, q_type, options, correct, coins, cat, diff, explanation, image_id, tl = q
+    diff_icon = DIFFICULTY_ICONS.get(diff, "🟡")
+    shuffled_opts, new_correct = shuffle_options(options, correct)
+    opts_list = shuffled_opts.split("|")
+
+    header = (f"⚔️ <b>DUEL</b>  {diff_icon}  {answered+1}/{len(q_ids)}\n\n"
+              f"❓ <b>{q_text}</b>")
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(
+            text=f"{chr(65+i)}. {opt[:50]}",
+            callback_data=f"duelans_{duel_id}_{q_id}_{chr(65+i)}_{new_correct}")]
+        for i, opt in enumerate(opts_list)])
+
+    try:
+        await bot.send_message(user_id, header, parse_mode="HTML", reply_markup=kb)
+    except: pass
+
+@dp.callback_query(F.data.startswith("duelans_"))
+async def duel_answer(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    duel_id = int(parts[1]); q_id = int(parts[2])
+    user_ans = parts[3]; correct_letter = parts[4]
+    uid = callback.from_user.id
+
+    duel = db.get_duel(duel_id)
+    if not duel or duel[4] != 'active':
+        await callback.answer("Duel aktiv emas!", show_alert=True); return
+
+    # Allaqachon javob berganmi?
+    from database import db as _db
+    cur = _db.get_conn().cursor()
+    cur.execute("SELECT 1 FROM duel_answers WHERE duel_id=%s AND user_id=%s AND question_id=%s",
+                (duel_id, uid, q_id))
+    if cur.fetchone():
+        await callback.answer("Allaqachon javob bergansiz!", show_alert=True); return
+
+    is_correct = user_ans.upper() == correct_letter.upper()
+    db.save_duel_answer(duel_id, uid, q_id, is_correct)
+
+    try: await callback.message.edit_reply_markup(reply_markup=None)
+    except: pass
+
+    result = "✅ To'g'ri!" if is_correct else "❌ Noto'g'ri!"
+    await callback.message.answer(f"⚔️ {result}")
+
+    # Keyingi savolni yuborish
+    await send_duel_question(uid, duel_id)
+    await callback.answer()
+
+async def check_duel_finish(duel_id):
+    duel = db.get_duel(duel_id)
+    if not duel or duel[4] != 'active': return
+    _, ch_id, op_id, bet, status, winner, ch_score, op_score, cur_q, total_q, _ = duel
+    q_ids = db.get_duel_questions(duel_id)
+    total = len(q_ids)
+
+    ch_ans = db.get_duel_answer_count(duel_id, ch_id)
+    op_ans = db.get_duel_answer_count(duel_id, op_id)
+
+    if ch_ans < total or op_ans < total: return
+
+    # Duel tugadi
+    result = db.finish_duel(duel_id)
+    if not result: return
+    winner_id, final_ch, final_op = result
+
+    ch_user = db.get_user(ch_id); op_user = db.get_user(op_id)
+    ch_name = ch_user[2] if ch_user else str(ch_id)
+    op_name = op_user[2] if op_user else str(op_id)
+    prize = bet * 2
+
+    if winner_id:
+        loser_id = op_id if winner_id == ch_id else ch_id
+        db.add_coins(winner_id, prize)
+        db.add_league_points(winner_id, 20)
+        db.add_league_points(loser_id, 5)
+        w_name = ch_name if winner_id == ch_id else op_name
+        result_text = (f"🏆 <b>DUEL YAKUNLANDI!</b>\n\n"
+                       f"👤 {ch_name}: <b>{final_ch}</b> ✅\n"
+                       f"👤 {op_name}: <b>{final_op}</b> ✅\n\n"
+                       f"🥇 G'olib: <b>{w_name}</b>\n"
+                       f"💰 Yutuq: <b>+{prize} coin</b>\n"
+                       f"📈 +20 liga ball")
+    else:
+        db.add_coins(ch_id, bet); db.add_coins(op_id, bet)
+        db.add_league_points(ch_id, 10); db.add_league_points(op_id, 10)
+        result_text = (f"🤝 <b>DURRANG!</b>\n\n"
+                       f"👤 {ch_name}: <b>{final_ch}</b> ✅\n"
+                       f"👤 {op_name}: <b>{final_op}</b> ✅\n\n"
+                       f"Coinlar qaytarildi. +10 liga ball")
+
+    try: await bot.send_message(ch_id, result_text, parse_mode="HTML")
+    except: pass
+    try: await bot.send_message(op_id, result_text, parse_mode="HTML")
+    except: pass
+
+# ═══════════════ LIGA TIZIMI ═══════════════
+@dp.message(F.text=="🏅 Liga")
+async def liga_menu(message: types.Message):
+    uid = message.from_user.id
+    league_data = db.get_or_create_league(uid)
+    if not league_data:
+        await message.answer("Liga ma'lumoti topilmadi."); return
+
+    u_id, league, points, week_pts, season, updated = league_data
+    icon = LEAGUE_ICONS.get(league, "🥉")
+    leagues_order = ["bronza", "kumush", "oltin", "platina", "olmos"]
+    next_leagues = {"bronza":"kumush","kumush":"oltin","oltin":"platina","platina":"olmos"}
+    next_league = next_leagues.get(league)
+    next_pts = LEAGUE_POINTS.get(next_league, 9999) if next_league else None
+    progress = ""
+    if next_pts:
+        need = next_pts - points
+        progress = f"\n⬆️ Keyingi liga: <b>{LEAGUE_ICONS.get(next_league,'')} {next_league.capitalize()}</b> — {need} ball kerak"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏆 Liga reytingi", callback_data=f"liga_top_{league}")],
+        [InlineKeyboardButton(text="🌍 Umumiy reyting", callback_data="liga_top_all")],
+        [InlineKeyboardButton(text="📅 Haftalik reyting", callback_data="liga_weekly")]])
+
+    await message.answer(
+        f"{icon} <b>{league.upper()} LIGA</b>\n\n"
+        f"📊 Ball: <b>{points}</b>\n"
+        f"📅 Bu hafta: <b>{week_pts}</b>\n"
+        f"🎮 Fasl: <b>{season}</b>{progress}\n\n"
+        f"💡 Ball qanday yig'iladi:\n"
+        f"• Duel g'alabasi: +20 ball\n"
+        f"• Duel durrangi: +10 ball\n"
+        f"• Duel yutqazish: +5 ball\n"
+        f"• To'g'ri javob: +1 ball",
+        parse_mode="HTML", reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("liga_top_"))
+async def liga_top(callback: types.CallbackQuery):
+    league_filter = callback.data[9:]
+    if league_filter == "all":
+        top = db.get_league_leaderboard(limit=10)
+        title = "🌍 Umumiy Liga Reytingi"
+    else:
+        top = db.get_league_leaderboard(league=league_filter, limit=10)
+        icon = LEAGUE_ICONS.get(league_filter, "🏅")
+        title = f"{icon} {league_filter.capitalize()} Liga"
+
+    if not top:
+        await callback.answer("Hali hech kim yo'q!", show_alert=True); return
+
+    medals = ["🥇","🥈","🥉"]
+    text = f"<b>{title}</b>\n\n"
+    for i, (uid, fname, uname, pts, lg) in enumerate(top):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        name = fname or uname or str(uid)
+        icon = LEAGUE_ICONS.get(lg, "🥉")
+        text += f"{medal} {icon} <b>{name}</b> — {pts} ball\n"
+
+    await callback.message.edit_text(text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔙 Orqaga", callback_data="liga_back")]]))
+    await callback.answer()
+
+@dp.callback_query(F.data=="liga_weekly")
+async def liga_weekly(callback: types.CallbackQuery):
+    top = db.get_weekly_leaderboard(10)
+    if not top:
+        await callback.answer("Hali hech kim yo'q!", show_alert=True); return
+    medals = ["🥇","🥈","🥉"]
+    text = "📅 <b>Haftalik Reyting</b>\n\n"
+    for i, (uid, fname, uname, pts, lg) in enumerate(top):
+        medal = medals[i] if i < 3 else f"{i+1}."
+        name = fname or uname or str(uid)
+        text += f"{medal} <b>{name}</b> — {pts} ball\n"
+    await callback.message.edit_text(text, parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔙 Orqaga", callback_data="liga_back")]]))
+    await callback.answer()
+
+@dp.callback_query(F.data=="liga_back")
+async def liga_back(callback: types.CallbackQuery):
+    uid = callback.from_user.id
+    league_data = db.get_or_create_league(uid)
+    if not league_data:
+        await callback.answer(); return
+    u_id, league, points, week_pts, season, updated = league_data
+    icon = LEAGUE_ICONS.get(league, "🥉")
+    await callback.message.edit_text(
+        f"{icon} <b>{league.upper()} LIGA</b>\n📊 Ball: <b>{points}</b>  📅 Bu hafta: <b>{week_pts}</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🏆 Liga reytingi", callback_data=f"liga_top_{league}")],
+            [InlineKeyboardButton(text="🌍 Umumiy reyting", callback_data="liga_top_all")],
+            [InlineKeyboardButton(text="📅 Haftalik reyting", callback_data="liga_weekly")]]))
     await callback.answer()
