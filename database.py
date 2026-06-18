@@ -191,6 +191,7 @@ class Database:
             cur.execute("ALTER TABLE questions ADD COLUMN time_limit TEXT DEFAULT ''")
         except: pass
         self.create_group_tables()
+        self.create_duel_tables()
 
     # ── USERS ─────────────────────────────────────────────────────────────────
     def add_user(self, user_id, username, first_name, referrer_id=None):
@@ -599,7 +600,6 @@ class Database:
         cur = self.get_conn().cursor()
         cur.execute("UPDATE pending_questions SET status='rejected' WHERE id=%s", (pq_id,))
 
-db = Database()
 
 
     # ── GROUPS ───────────────────────────────────────────────────────────────
@@ -734,3 +734,217 @@ db = Database()
         cur.execute("SELECT COUNT(*) FROM group_answers WHERE chat_id=%s", (chat_id,))
         total = cur.fetchone()[0]
         return {"players": players, "correct": correct, "total": total}
+
+    # ── DUEL TIZIMI ──────────────────────────────────────────────────────────
+    def create_duel_tables(self):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS duels (
+                id          SERIAL PRIMARY KEY,
+                challenger_id BIGINT,
+                opponent_id   BIGINT,
+                bet           REAL DEFAULT 10,
+                status        TEXT DEFAULT 'pending',
+                winner_id     BIGINT DEFAULT NULL,
+                challenger_score INTEGER DEFAULT 0,
+                opponent_score   INTEGER DEFAULT 0,
+                current_question INTEGER DEFAULT 0,
+                total_questions  INTEGER DEFAULT 5,
+                created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS duel_questions (
+                id          SERIAL PRIMARY KEY,
+                duel_id     INTEGER,
+                question_id INTEGER,
+                order_num   INTEGER
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS duel_answers (
+                id          SERIAL PRIMARY KEY,
+                duel_id     INTEGER,
+                user_id     BIGINT,
+                question_id INTEGER,
+                is_correct  INTEGER DEFAULT 0,
+                answered_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(duel_id, user_id, question_id)
+            )
+        """)
+        # ── LIGA TIZIMI ──
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS leagues (
+                user_id     BIGINT PRIMARY KEY,
+                league      TEXT DEFAULT 'bronza',
+                points      INTEGER DEFAULT 0,
+                week_points INTEGER DEFAULT 0,
+                season      INTEGER DEFAULT 1,
+                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+    def get_or_create_league(self, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT * FROM leagues WHERE user_id=%s", (user_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.execute("INSERT INTO leagues (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+            cur.execute("SELECT * FROM leagues WHERE user_id=%s", (user_id,))
+            row = cur.fetchone()
+        return row
+
+    def add_league_points(self, user_id, points):
+        cur = self.get_conn().cursor()
+        self.get_or_create_league(user_id)
+        cur.execute("""
+            UPDATE leagues SET points=points+%s, week_points=week_points+%s, updated_at=CURRENT_TIMESTAMP
+            WHERE user_id=%s
+        """, (points, points, user_id))
+        self._update_league_rank(user_id)
+
+    def _update_league_rank(self, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT points FROM leagues WHERE user_id=%s", (user_id,))
+        row = cur.fetchone()
+        if not row: return
+        pts = row[0]
+        if pts >= 1000: league = "olmos"
+        elif pts >= 500: league = "platina"
+        elif pts >= 200: league = "oltin"
+        elif pts >= 80:  league = "kumush"
+        else:            league = "bronza"
+        cur.execute("UPDATE leagues SET league=%s WHERE user_id=%s", (league, user_id))
+
+    def get_league_leaderboard(self, league=None, limit=10):
+        cur = self.get_conn().cursor()
+        if league:
+            cur.execute("""
+                SELECT l.user_id, u.first_name, u.username, l.points, l.league
+                FROM leagues l LEFT JOIN users u ON u.user_id=l.user_id
+                WHERE l.league=%s ORDER BY l.points DESC LIMIT %s
+            """, (league, limit))
+        else:
+            cur.execute("""
+                SELECT l.user_id, u.first_name, u.username, l.points, l.league
+                FROM leagues l LEFT JOIN users u ON u.user_id=l.user_id
+                ORDER BY l.points DESC LIMIT %s
+            """, (limit,))
+        return cur.fetchall()
+
+    def get_weekly_leaderboard(self, limit=10):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT l.user_id, u.first_name, u.username, l.week_points, l.league
+            FROM leagues l LEFT JOIN users u ON u.user_id=l.user_id
+            ORDER BY l.week_points DESC LIMIT %s
+        """, (limit,))
+        return cur.fetchall()
+
+    def reset_weekly_points(self):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE leagues SET week_points=0")
+
+    # Duel metodlari
+    def create_duel(self, challenger_id, opponent_id, bet=10):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            INSERT INTO duels (challenger_id, opponent_id, bet, status)
+            VALUES (%s, %s, %s, 'pending') RETURNING id
+        """, (challenger_id, opponent_id, bet))
+        return cur.fetchone()[0]
+
+    def get_duel(self, duel_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT * FROM duels WHERE id=%s", (duel_id,))
+        return cur.fetchone()
+
+    def get_active_duel(self, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT * FROM duels WHERE status='active'
+            AND (challenger_id=%s OR opponent_id=%s)
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id, user_id))
+        return cur.fetchone()
+
+    def get_pending_duel(self, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT * FROM duels WHERE status='pending' AND opponent_id=%s
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id,))
+        return cur.fetchone()
+
+    def accept_duel(self, duel_id):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE duels SET status='active' WHERE id=%s", (duel_id,))
+
+    def decline_duel(self, duel_id):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE duels SET status='declined' WHERE id=%s", (duel_id,))
+
+    def set_duel_questions(self, duel_id, question_ids):
+        cur = self.get_conn().cursor()
+        for i, qid in enumerate(question_ids):
+            cur.execute("INSERT INTO duel_questions (duel_id, question_id, order_num) VALUES (%s,%s,%s)",
+                        (duel_id, qid, i))
+
+    def get_duel_questions(self, duel_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT question_id FROM duel_questions WHERE duel_id=%s ORDER BY order_num", (duel_id,))
+        return [r[0] for r in cur.fetchall()]
+
+    def save_duel_answer(self, duel_id, user_id, question_id, is_correct):
+        cur = self.get_conn().cursor()
+        try:
+            cur.execute("""
+                INSERT INTO duel_answers (duel_id, user_id, question_id, is_correct)
+                VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING
+            """, (duel_id, user_id, question_id, int(is_correct)))
+            if is_correct:
+                # Kim challenger kim opponent
+                duel = self.get_duel(duel_id)
+                if duel[1] == user_id:
+                    cur.execute("UPDATE duels SET challenger_score=challenger_score+1 WHERE id=%s", (duel_id,))
+                else:
+                    cur.execute("UPDATE duels SET opponent_score=opponent_score+1 WHERE id=%s", (duel_id,))
+        except: pass
+
+    def get_duel_answer_count(self, duel_id, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT COUNT(*) FROM duel_answers WHERE duel_id=%s AND user_id=%s", (duel_id, user_id))
+        return cur.fetchone()[0]
+
+    def finish_duel(self, duel_id):
+        cur = self.get_conn().cursor()
+        duel = self.get_duel(duel_id)
+        if not duel: return None
+        _, ch_id, op_id, bet, status, winner, ch_score, op_score, cur_q, total_q, created = duel
+        if ch_score > op_score: winner_id = ch_id
+        elif op_score > ch_score: winner_id = op_id
+        else: winner_id = None  # draw
+        cur.execute("UPDATE duels SET status='finished', winner_id=%s WHERE id=%s", (winner_id, duel_id))
+        return winner_id, ch_score, op_score
+
+    def get_duel_stats(self, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN winner_id=%s THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN winner_id IS NOT NULL AND winner_id!=%s THEN 1 ELSE 0 END) as losses,
+                SUM(CASE WHEN winner_id IS NULL AND status='finished' THEN 1 ELSE 0 END) as draws
+            FROM duels WHERE status='finished' AND (challenger_id=%s OR opponent_id=%s)
+        """, (user_id, user_id, user_id, user_id))
+        return cur.fetchone()
+
+    def get_random_test_questions(self, count=5):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT id FROM questions WHERE is_active=1 AND is_approved=1 AND q_type='test'
+            ORDER BY RANDOM() LIMIT %s
+        """, (count,))
+        return [r[0] for r in cur.fetchall()]
+
+db = Database()
