@@ -99,7 +99,7 @@ def main_menu(uid):
        [KeyboardButton(text="👤 Profilim"),KeyboardButton(text="ℹ️ Yordam")],
        [KeyboardButton(text="📝 Taklif/Shikoyat"),KeyboardButton(text="🎓 IELTS")],
        [KeyboardButton(text="⚔️ Duel"),KeyboardButton(text="🏅 Liga")],
-       [KeyboardButton(text="🤖 AI Chat")]]
+       [KeyboardButton(text="🤖 AI Chat"),KeyboardButton(text="👥 Guruhga ulash")]]
     if is_admin(uid): b.append([KeyboardButton(text="⚙️ Admin Panel")])
     if is_sub_admin(uid) and not is_admin(uid): b.append([KeyboardButton(text="🛡 Yordamchi Admin Panel")])
     return ReplyKeyboardMarkup(keyboard=b, resize_keyboard=True)
@@ -146,31 +146,50 @@ def check_answer(user_ans, correct_ans):
     uc=user_ans.strip().lower()
     return uc in [a.strip().lower() for a in correct_ans.split("\n") if a.strip()]
 
+
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "mixtral-8x7b-32768",
+    "gemma2-9b-it",
+]
+
+async def groq_request(messages, max_tokens=1000):
+    models_to_try = [GROQ_MODEL] + [m for m in GROQ_MODELS if m != GROQ_MODEL]
+    last_error = ""
+    for model in models_to_try:
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
+                    json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as r:
+                    d = await r.json()
+                    if "error" in d:
+                        last_error = str(d["error"])
+                        logging.warning(f"Groq {model} xato: {last_error}")
+                        continue
+                    if "choices" in d and d["choices"]:
+                        return d["choices"][0]["message"]["content"]
+        except asyncio.TimeoutError:
+            logging.warning(f"Groq {model} timeout")
+        except Exception as e:
+            last_error = str(e)
+            logging.warning(f"Groq {model} exception: {e}")
+    logging.error(f"Barcha Groq modellari ishlamadi. Xato: {last_error}")
+    return None
+
 async def ai_req(prompt):
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.post("https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization":f"Bearer {GROQ_API_KEY}","Content-Type":"application/json"},
-                json={"model":GROQ_MODEL,"messages":[{"role":"user","content":prompt}],"max_tokens":1000},
-                timeout=aiohttp.ClientTimeout(total=30)) as r:
-                d=await r.json()
-                return d["choices"][0]["message"]["content"]
-    except: pass
-    return "⚠️ AI hozirda ishlamayapti."
+    result = await groq_request([{"role": "user", "content": prompt}], max_tokens=1000)
+    return result if result else "⚠️ AI hozirda ishlamayapti. Keyinroq urinib ko'ring."
 
 async def ai_chat_req(history, user_text):
-    sys_p="Siz BilimChallenge botining yordamchi AI sisiz. O'zbek tilida qisqa va foydali javob bering."
-    try:
-        msgs=[{"role":"system","content":sys_p}]+history[-6:]+[{"role":"user","content":user_text}]
-        async with aiohttp.ClientSession() as s:
-            async with s.post("https://api.groq.com/openai/v1/chat/completions",
-                headers={"Authorization":f"Bearer {GROQ_API_KEY}","Content-Type":"application/json"},
-                json={"model":GROQ_MODEL,"messages":msgs,"max_tokens":800},
-                timeout=aiohttp.ClientTimeout(total=30)) as r:
-                d=await r.json()
-                return d["choices"][0]["message"]["content"]
-    except: pass
-    return "⚠️ AI hozirda ishlamayapti."
+    sys_p = "Siz BilimChallenge botining yordamchi AI sisiz. O'zbek tilida qisqa va foydali javob bering."
+    msgs = [{"role": "system", "content": sys_p}] + history[-6:] + [{"role": "user", "content": user_text}]
+    result = await groq_request(msgs, max_tokens=800)
+    return result if result else "⚠️ AI hozirda ishlamayapti. Keyinroq urinib ko'ring."
 
 def parse_band(text):
     for p in [r'Band\s*Score[:\s]+(\d+\.?\d*)',r'(\d+\.?\d*)\s*/\s*9(?:\.0)?',r'(\d+\.?\d*)\s*ball']:
@@ -936,6 +955,22 @@ async def show_profile(message: types.Message):
         f"👥 Taklif qilinganlar: <b>{ref_count} ta</b>\n"
         f"🔗 Referal havola:\n<code>{ref_link}</code>",
         parse_mode="HTML")
+
+@dp.message(F.text=="👥 Guruhga ulash")
+async def user_add_to_group(message: types.Message):
+    me = await bot.get_me()
+    add_url = f"https://t.me/{me.username}?startgroup=start"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="👥 Guruhni tanlang", url=add_url)]])
+    await message.answer(
+        "\U0001f465 <b>Botni guruhga q'o'shish</b>\n\n"
+        "Quyidagi tugmani bosing va guruhingizni tanlang.\n"
+        "Bot q'o'shilgandan so'ng guruhda <b>/savol</b> yuboring!\n\n"
+        "\U0001f3ae Guruhda:\n"
+        "\u2022 /savol \u2014 yangi savol\n"
+        "\u2022 /reyting \u2014 guruh reytingi\n"
+        "\u2022 /stat \u2014 statistika",
+        parse_mode="HTML", reply_markup=kb)
 
 @dp.message(F.text=="ℹ️ Yordam")
 async def show_help(message: types.Message):
@@ -2163,6 +2198,92 @@ async def check_sub_admin_terms():
                             except: pass
             except: pass
 
+async def groq_auto_question():
+    """Groq orqali har 30-60 daqiqada avtomatik savol yaratish"""
+    CATEGORIES_FOR_AI = [
+        "Matematika", "Tarix", "Geografiya", "Biologiya",
+        "Fizika", "Kimyo", "Adabiyot", "Ingliz tili", "Umumiy bilim"
+    ]
+    DIFFICULTIES = ["oson", "orta", "qiyin"]
+
+    while True:
+        await asyncio.sleep(3600)  # 1 soatda bir
+        try:
+            import random as _random
+            cat = _random.choice(CATEGORIES_FOR_AI)
+            diff = _random.choice(DIFFICULTIES)
+            diff_name = {"oson": "oson (boshlang'ich daraja)", "orta": "o'rta daraja", "qiyin": "qiyin (yuqori daraja)"}[diff]
+
+            prompt = (
+                f"Sen o'zbek tilida viktorina savoli yaratuvchisan.\n"
+                f"Kategoriya: {cat}\n"
+                f"Qiyinlik: {diff_name}\n\n"
+                f"FAQAT quyidagi JSON formatda javo ber, boshqa hech narsa yozma:\n"
+                f'[{{"savol": "savol matni", "A": "variant", "B": "variant", "C": "variant", "D": "variant", "javob": "A", "izoh": "qisqa tushuntirish"}}]\n\n'
+                f"Qoidalar:\n"
+                f"- Savol aniq va bir ma'noli bo'lsin\n"
+                f"- To'g'ri javob faqat bitta bo'lsin\n"
+                f"- Variantlar mantiqiy bo'lsin\n"
+                f"- O'zbek tilida yoz"
+            )
+
+            response = await ai_req(prompt)
+
+            # JSON ajratish
+            import json, re as _re
+            json_match = _re.search(r'\[.*?\]', response, _re.DOTALL)
+            if not json_match:
+                continue
+
+            data = json.loads(json_match.group())
+            if not data or not isinstance(data, list):
+                continue
+
+            q_data = data[0]
+            q_text = q_data.get("savol", "").strip()
+            opt_a = q_data.get("A", "").strip()
+            opt_b = q_data.get("B", "").strip()
+            opt_c = q_data.get("C", "").strip()
+            opt_d = q_data.get("D", "").strip()
+            correct = q_data.get("javob", "A").strip().upper()
+            izoh = q_data.get("izoh", "").strip()
+
+            if not q_text or not opt_a or not opt_b:
+                continue
+
+            options = f"{opt_a}|{opt_b}|{opt_c}|{opt_d}"
+            coins = {"oson": 3, "orta": 5, "qiyin": 8}[diff]
+
+            # Pending questions ga qo'shish (admin tasdiqlaydi)
+            pq_id = db.add_pending_question(
+                sub_admin_id=0,  # 0 = Groq AI
+                text=q_text,
+                q_type="test",
+                options=options,
+                correct=correct,
+                coins=coins,
+                category=cat,
+                difficulty=diff,
+                explanation=izoh
+            )
+
+            # Adminlarga xabar
+            for admin_id in ADMIN_IDS:
+                try:
+                    opts_text = f"A. {opt_a}\nB. {opt_b}\nC. {opt_c}\nD. {opt_d}"
+                    await bot.send_message(admin_id,
+                        f"🤖 <b>Groq AI yangi savol yaratdi!</b>\n\n"
+                        f"📂 {cat}  |  {DIFFICULTY_ICONS.get(diff,'🟡')} {diff}\n\n"
+                        f"❓ {q_text}\n\n{opts_text}\n\n"
+                        f"✅ To'g'ri: <b>{correct}</b>\n"
+                        f"💡 {izoh}\n\n"
+                        f"'⏳ Kutayotgan savollar' bo'limidan tasdiqlang.",
+                        parse_mode="HTML")
+                except: pass
+
+        except Exception as e:
+            logging.error(f"Groq auto-question error: {e}")
+
 async def main():
     # Bot buyruqlari ro'yxatini o'rnatish (/ bosilganda chiqadi)
     await bot.set_my_commands([
@@ -2176,6 +2297,7 @@ async def main():
         types.BotCommand(command="cancel", description="❌ Amalni bekor qilish"),
     ])
     asyncio.create_task(check_sub_admin_terms())
+    asyncio.create_task(groq_auto_question())
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 if __name__=="__main__":
@@ -2304,6 +2426,12 @@ async def group_stat_cmd(message: types.Message):
 async def handle_group_message(message: types.Message):
     if not message.text: return
     if message.text.startswith("/"): return
+    # Keyboard tugma textlari bilan to'qnashmaslik
+    menu_texts = ["🎯 Savol olish","🏆 Reyting","👤 Profilim","ℹ️ Yordam",
+                  "📝 Taklif/Shikoyat","🎓 IELTS","⚔️ Duel","🏅 Liga",
+                  "🤖 AI Chat","👥 Guruhga ulash","⚙️ Admin Panel",
+                  "🛡 Yordamchi Admin Panel","🔙 Asosiy menyu"]
+    if message.text in menu_texts: return
     chat_id = message.chat.id
     user_id = message.from_user.id
 
