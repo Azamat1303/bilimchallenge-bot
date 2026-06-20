@@ -2323,59 +2323,66 @@ async def on_chat_member_update(event: types.ChatMemberUpdated):
         elif event.new_chat_member.status in ("left", "kicked"):
             db.remove_group(event.chat.id)
 
-# /savol buyrug'i — guruhda savol chiqarish
+# /savol buyrug'i — faqat guruh admini yuboradi
 @dp.message(Command("savol"))
 async def group_question_cmd(message: types.Message):
     if message.chat.type not in ("group", "supergroup"): return
     chat_id = message.chat.id
+    uid = message.from_user.id
+
+    # Faqat guruh admini yoki bot admini yuborishi mumkin
+    try:
+        member = await bot.get_chat_member(chat_id, uid)
+        if member.status not in ("administrator", "creator") and not is_admin(uid):
+            await message.reply("❌ Faqat guruh admini savol yuborishi mumkin.")
+            return
+    except Exception:
+        pass
 
     # Aktiv savol bormi?
     aq = db.get_group_question(chat_id)
     if aq:
-        await message.answer("⏳ Hali oldingi savol tugamagan! /skip yozing yoki javob bering.")
+        await message.reply("⏳ Hali oldingi savol tugamagan!\n/skip — savolni o'tkazish")
         return
 
     category = db.get_group_category(chat_id)
-    # Guruhda barcha foydalanuvchilar uchun umumiy savol — answered_ids hisoblanmasin
-    cur = db.get_conn().cursor()
-    conditions = ["is_active=1", "is_approved=1", "q_type IN ('test','open')"]
-    params = []
-    if category and category != "Barchasi":
-        conditions.append("category=%s")
-        params.append(category)
-    where = " AND ".join(conditions)
-    cur.execute(f"SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1", params)
-    q = cur.fetchone()
+    q = db.get_group_random_question(chat_id, category)
 
     if not q:
-        await message.answer("😔 Bu kategoriyada savollar yo'q.")
+        await message.reply(
+            "😔 Bu guruhda barcha savollar berildi yoki savollar yo'q!\n"
+            "Admin paneldan yangi savollar qo'shing.")
         return
 
     q_id, q_text, q_type, options, correct, coins, cat, diff, explanation, image_id = q
-    db.set_group_question(chat_id, q_id, correct, coins)
-
     diff_icon = DIFFICULTY_ICONS.get(diff, "🟡")
     me = await bot.get_me()
     join_link = f"https://t.me/{me.username}?start=ref0"
 
     if q_type == "test":
         shuffled_opts, new_correct = shuffle_options(options, correct)
-        opts_list = shuffled_opts.split("|")
-        # To'g'ri javobni state'ga saqlaymiz
         db.set_group_question(chat_id, q_id, new_correct, coins)
-        header = (f"🧠 <b>GURUH SAVOLI</b>  {diff_icon}  📂 {cat}\n"
-                  f"💰 To'g'ri javob: <b>+{coins} coin</b>\n\n"
-                  f"❓ <b>{q_text}</b>\n\n")
-        for i, opt in enumerate(opts_list):
-            header += f"{chr(65+i)}. {opt}\n"
-        header += f"\n✍️ <b>A / B / C / D</b> deb yozing!\n👉 Coin olish uchun: <a href='{join_link}'>Botga qo'shiling</a>"
-        await message.answer(header, parse_mode="HTML")
+        opts_list = shuffled_opts.split("|")
+        lines = [f"{chr(65+i)}. {opt}" for i, opt in enumerate(opts_list)]
+        opts_text = "\n".join(lines)
+        header = (
+            f"🧠 <b>GURUH SAVOLI</b>  {diff_icon}  📂 {cat}\n"
+            f"💰 To'g'ri javob: <b>+{coins} coin</b>\n\n"
+            f"❓ <b>{q_text}</b>\n\n"
+            f"{opts_text}\n\n"
+            f"✍️ <b>A / B / C / D</b> deb yozing!\n"
+            f"👉 Coin olish uchun: <a href='{join_link}'>Botga qo'shiling</a>"
+        )
     else:
-        header = (f"🧠 <b>GURUH SAVOLI</b>  {diff_icon}  📂 {cat}\n"
-                  f"💰 To'g'ri javob: <b>+{coins} coin</b>\n\n"
-                  f"❓ <b>{q_text}</b>\n\n"
-                  f"✍️ Javobingizni yozing!\n👉 Coin olish uchun: <a href='{join_link}'>Botga qo'shiling</a>")
-        await message.answer(header, parse_mode="HTML")
+        db.set_group_question(chat_id, q_id, correct, coins)
+        header = (
+            f"🧠 <b>GURUH SAVOLI</b>  {diff_icon}  📂 {cat}\n"
+            f"💰 To'g'ri javob: <b>+{coins} coin</b>\n\n"
+            f"❓ <b>{q_text}</b>\n\n"
+            f"✍️ Javobingizni yozing!\n"
+            f"👉 Coin olish uchun: <a href='{join_link}'>Botga qo'shiling</a>"
+        )
+    await message.answer(header, parse_mode="HTML")
 
 # /skip — guruhda savolni o'tkazish (faqat admin)
 @dp.message(Command("skip"))
@@ -2463,32 +2470,35 @@ async def handle_group_message(message: types.Message):
 
     if is_correct:
         db.save_group_answer(chat_id, user_id, q_id, True)
-        db.add_coins(user_id, coins)
+        # Coin va streak
         ns = db.update_streak(user_id, True)
         bonus = streak_bonus(ns)
         earned = round(coins * bonus, 1)
-        if bonus > 1:
-            db.add_coins(user_id, earned - coins)
-
+        db.add_coins(user_id, earned)
+        # Bot shaxsiy savollarida ham bu savol chiqmasin
+        try:
+            db.save_answer(user_id, q_id, True)
+        except Exception:
+            pass
         db.close_group_question(chat_id)
-
-        text = (f"✅ <b>{message.from_user.first_name}</b> to'g'ri javob berdi!\n"
-                f"💰 +{earned} coin"
-                + (f" (🔥x{bonus})" if bonus > 1 else "") +
-                f"\n\n📊 Keyingi savol: /savol")
-
+        text = (
+            f"✅ <b>{message.from_user.first_name}</b> to'g'ri javob berdi!\n"
+            f"💰 +{earned} coin"
+            + (f" (🔥x{bonus})" if bonus > 1 else "")
+            + f"\n\n📊 Keyingi savol uchun: /savol"
+        )
         ud = db.get_user(user_id)
         if ud:
             rank = db.get_user_rank(user_id)
             text += f"\n🏆 Umumiy reyting: #{rank}"
-
         await message.reply(text, parse_mode="HTML")
-
     else:
+        # Noto'g'ri - faqat qayd qilish, minus yo'q, streak ham saqlanadi
         db.save_group_answer(chat_id, user_id, q_id, False)
         try:
-            await message.reply(f"❌ Noto'g'ri!", parse_mode="HTML")
-        except: pass
+            await message.reply("❌ Noto'g'ri, qayta urining!", parse_mode="HTML")
+        except Exception:
+            pass
 
 # ═══════════════ ADMIN — GURUHLAR BOSHQARUVI ═══════════════
 @dp.message(F.text=="👥 Guruhlar")
@@ -2767,8 +2777,8 @@ async def duel_accept(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(start_text, parse_mode="HTML")
 
     # Birinchi savolni yuborish
-    await send_duel_question(ch_id, duel_id, state)
-    await send_duel_question(op_id, duel_id, state)
+    await send_duel_question(ch_id, duel_id)
+    await send_duel_question(op_id, duel_id)
     await callback.answer()
 
 @dp.callback_query(F.data.startswith("duel_decline_"))
@@ -2791,10 +2801,10 @@ async def duel_cancel_cb(callback: types.CallbackQuery):
     await callback.message.edit_text("❌ Bekor qilindi.")
     await callback.answer()
 
-async def send_duel_question(user_id, duel_id, state=None):
+async def send_duel_question(user_id, duel_id):
     duel = db.get_duel(duel_id)
     if not duel: return
-    _, ch_id, op_id, bet, status, winner, ch_score, op_score, cur_q, total_q, _ = duel
+    _, ch_id, op_id, bet, status, winner, ch_score, op_score, total_q, _ = duel
     q_ids = db.get_duel_questions(duel_id)
 
     # Foydalanuvchi nechta javob bergan
@@ -2837,10 +2847,10 @@ async def duel_answer(callback: types.CallbackQuery):
         await callback.answer("Duel aktiv emas!", show_alert=True); return
 
     # Allaqachon javob berganmi?
-    from database import db as _db
-    cur = _db.get_conn().cursor()
-    cur.execute("SELECT 1 FROM duel_answers WHERE duel_id=%s AND user_id=%s AND question_id=%s",
-                (duel_id, uid, q_id))
+    cur = db.get_conn().cursor()
+    cur.execute(
+        "SELECT 1 FROM duel_answers WHERE duel_id=%s AND user_id=%s AND question_id=%s",
+        (duel_id, uid, q_id))
     if cur.fetchone():
         await callback.answer("Allaqachon javob bergansiz!", show_alert=True); return
 
