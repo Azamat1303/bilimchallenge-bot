@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from database import db
-from config import BOT_TOKEN, ADMIN_IDS, QUESTION_TIME, PENALTY_PERCENT, TIMEOUT_PENALTY, STREAK_BONUSES, GROQ_API_KEY, GROQ_MODEL, GEMINI_API_KEY
+from config import BOT_TOKEN, ADMIN_IDS, QUESTION_TIME, PENALTY_PERCENT, TIMEOUT_PENALTY, STREAK_BONUSES, GROQ_API_KEY, GROQ_MODEL
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -2433,12 +2433,14 @@ async def group_stat_cmd(message: types.Message):
 async def handle_group_message(message: types.Message):
     if not message.text: return
     if message.text.startswith("/"): return
-    # Keyboard tugma textlari bilan to'qnashmaslik
-    menu_texts = ["🎯 Savol olish","🏆 Reyting","👤 Profilim","ℹ️ Yordam",
-                  "📝 Taklif/Shikoyat","🎓 IELTS","⚔️ Duel","🏅 Liga",
-                  "🤖 AI Chat","👥 Guruhga ulash","⚙️ Admin Panel",
-                  "🛡 Yordamchi Admin Panel","🔙 Asosiy menyu"]
+    menu_texts = [
+        "🎯 Savol olish","🏆 Reyting","👤 Profilim","ℹ️ Yordam",
+        "📝 Taklif/Shikoyat","🎓 IELTS","⚔️ Duel","🏅 Liga",
+        "🤖 AI Chat","👥 Guruhga ulash","⚙️ Admin Panel",
+        "🛡 Yordamchi Admin Panel","🔙 Asosiy menyu"
+    ]
     if message.text in menu_texts: return
+
     chat_id = message.chat.id
     user_id = message.from_user.id
 
@@ -2448,57 +2450,52 @@ async def handle_group_message(message: types.Message):
     _, q_id, correct, coins, asked_at, is_open = aq
     if not is_open: return
 
-    # Allaqachon javob berganligi tekshirish
-    if db.already_answered_group(chat_id, user_id, q_id): return
-
     # Botga a'zoligini tekshirish
     user = db.get_user(user_id)
     me = await bot.get_me()
     join_link = f"https://t.me/{me.username}?start=ref{user_id}"
-
     if not user:
         try:
             await message.reply(
                 f"👋 <b>{message.from_user.first_name}</b>, coin olish uchun avval botga qo'shiling!\n"
                 f"👉 <a href='{join_link}'>Botga o'tish</a>",
                 parse_mode="HTML")
-        except: pass
+        except Exception: pass
         return
 
-    # Javobni tekshirish
+    # Allaqachon to'g'ri javob berganmi
+    if db.already_answered_group(chat_id, user_id, q_id): return
+
     is_correct = check_answer(message.text, correct)
 
     if is_correct:
+        # To'g'ri! Coin berish va savolni yopish
         db.save_group_answer(chat_id, user_id, q_id, True)
-        # Coin va streak
         ns = db.update_streak(user_id, True)
         bonus = streak_bonus(ns)
         earned = round(coins * bonus, 1)
         db.add_coins(user_id, earned)
-        # Bot shaxsiy savollarida ham bu savol chiqmasin
-        try:
-            db.save_answer(user_id, q_id, True)
-        except Exception:
-            pass
+        # Bot shaxsiy savollarida ham chiqmasin
+        try: db.save_answer(user_id, q_id, True)
+        except Exception: pass
         db.close_group_question(chat_id)
         text = (
-            f"✅ <b>{message.from_user.first_name}</b> to'g'ri javob berdi!\n"
+            f"✅ <b>{message.from_user.first_name}</b> to'g'ri topdi!\n"
             f"💰 +{earned} coin"
             + (f" (🔥x{bonus})" if bonus > 1 else "")
-            + f"\n\n📊 Keyingi savol uchun: /savol"
+            + "\n\n⏭ Keyingi savol uchun admin /savol yuboring"
         )
         ud = db.get_user(user_id)
         if ud:
             rank = db.get_user_rank(user_id)
-            text += f"\n🏆 Umumiy reyting: #{rank}"
+            text += f"\n🏆 Reyting: #{rank}"
         await message.reply(text, parse_mode="HTML")
     else:
-        # Noto'g'ri - faqat qayd qilish, minus yo'q, streak ham saqlanadi
+        # Noto'g'ri - minus yo'q, boshqalar davom etishi mumkin
         db.save_group_answer(chat_id, user_id, q_id, False)
         try:
-            await message.reply("❌ Noto'g'ri, qayta urining!", parse_mode="HTML")
-        except Exception:
-            pass
+            await message.reply("❌ Noto'g'ri! Boshqalar davom etishi mumkin.", parse_mode="HTML")
+        except Exception: pass
 
 # ═══════════════ ADMIN — GURUHLAR BOSHQARUVI ═══════════════
 @dp.message(F.text=="👥 Guruhlar")
@@ -2741,7 +2738,7 @@ async def duel_accept(callback: types.CallbackQuery, state: FSMContext):
     if not duel or duel[4] != 'pending':
         await callback.answer("Duel topilmadi!", show_alert=True); return
 
-    _, ch_id, op_id, bet, *_ = duel
+    d_id, ch_id, op_id, bet, status, winner, ch_sc, op_sc, total_q, created = duel
     if callback.from_user.id != op_id:
         await callback.answer("Bu sizning duelingiz emas!", show_alert=True); return
 
@@ -2804,7 +2801,7 @@ async def duel_cancel_cb(callback: types.CallbackQuery):
 async def send_duel_question(user_id, duel_id):
     duel = db.get_duel(duel_id)
     if not duel: return
-    _, ch_id, op_id, bet, status, winner, ch_score, op_score, total_q, _ = duel
+    d_id, ch_id, op_id, bet, status, winner, ch_score, op_score, total_q, created = duel
     q_ids = db.get_duel_questions(duel_id)
 
     # Foydalanuvchi nechta javob bergan
@@ -2870,7 +2867,7 @@ async def duel_answer(callback: types.CallbackQuery):
 async def check_duel_finish(duel_id):
     duel = db.get_duel(duel_id)
     if not duel or duel[4] != 'active': return
-    _, ch_id, op_id, bet, status, winner, ch_score, op_score, cur_q, total_q, _ = duel
+    _, ch_id, op_id, bet, status, winner, ch_score, op_score, total_q, _ = duel
     q_ids = db.get_duel_questions(duel_id)
     total = len(q_ids)
 
@@ -2922,9 +2919,12 @@ async def liga_menu(message: types.Message):
     if not league_data:
         await message.answer("Liga ma'lumoti topilmadi."); return
 
-    u_id, league, points, week_pts, season, updated = league_data
+    if len(league_data) >= 6:
+        u_id, league, points, week_pts, season, updated = league_data[:6]
+    else:
+        u_id, league, points, week_pts, season = league_data[:5]
+        updated = ""
     icon = LEAGUE_ICONS.get(league, "🥉")
-    leagues_order = ["bronza", "kumush", "oltin", "platina", "olmos"]
     next_leagues = {"bronza":"kumush","kumush":"oltin","oltin":"platina","platina":"olmos"}
     next_league = next_leagues.get(league)
     next_pts = LEAGUE_POINTS.get(next_league, 9999) if next_league else None
@@ -2999,7 +2999,10 @@ async def liga_back(callback: types.CallbackQuery):
     league_data = db.get_or_create_league(uid)
     if not league_data:
         await callback.answer(); return
-    u_id, league, points, week_pts, season, updated = league_data
+    if len(league_data) >= 6:
+        u_id, league, points, week_pts, season, updated = league_data[:6]
+    else:
+        u_id, league, points, week_pts, season = league_data[:5]
     icon = LEAGUE_ICONS.get(league, "🥉")
     await callback.message.edit_text(
         f"{icon} <b>{league.upper()} LIGA</b>\n📊 Ball: <b>{points}</b>  📅 Bu hafta: <b>{week_pts}</b>",
