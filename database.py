@@ -1,20 +1,29 @@
-import os
 import psycopg2
+import logging
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = "postgresql://neondb_owner:npg_ISTdnGO5YpE3@ep-crimson-scene-aqmmilfp.c-8.us-east-1.aws.neon.tech/neondb?sslmode=require"
 
 class Database:
     def __init__(self):
-        self.conn = psycopg2.connect(DATABASE_URL)
-        self.conn.autocommit = True
+        self.conn = None
+        self._connect()
         self.create_tables()
+
+    def _connect(self):
+        try:
+            self.conn = psycopg2.connect(DATABASE_URL)
+            self.conn.autocommit = True
+            logging.info("DB ulandi")
+        except Exception as e:
+            logging.error(f"DB ulanish xatosi: {e}")
+            raise
 
     def get_conn(self):
         try:
             self.conn.cursor().execute("SELECT 1")
-        except:
-            self.conn = psycopg2.connect(DATABASE_URL)
-            self.conn.autocommit = True
+        except Exception:
+            logging.warning("DB qayta ulanmoqda...")
+            self._connect()
         return self.conn
 
     def create_tables(self):
@@ -80,44 +89,40 @@ class Database:
                 reply      TEXT DEFAULT ''
             )
         """)
-        # Yordamchi adminlar jadvali
         cur.execute("""
             CREATE TABLE IF NOT EXISTS sub_admins (
-                user_id     BIGINT PRIMARY KEY,
-                username    TEXT DEFAULT '',
-                first_name  TEXT DEFAULT '',
-                elected_at  TEXT DEFAULT CURRENT_TIMESTAMP,
-                term_end    TEXT DEFAULT '',
-                salary      REAL DEFAULT 0,
-                last_report TEXT DEFAULT '',
+                user_id      BIGINT PRIMARY KEY,
+                username     TEXT DEFAULT '',
+                first_name   TEXT DEFAULT '',
+                elected_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+                term_end     TEXT DEFAULT '',
+                salary       REAL DEFAULT 0,
+                last_report  TEXT DEFAULT '',
                 report_count INTEGER DEFAULT 0,
-                warnings    INTEGER DEFAULT 0,
-                is_active   INTEGER DEFAULT 1
+                warnings     INTEGER DEFAULT 0,
+                is_active    INTEGER DEFAULT 1
             )
         """)
-        # Saylov jadvali
         cur.execute("""
             CREATE TABLE IF NOT EXISTS elections (
-                id          SERIAL PRIMARY KEY,
-                status      TEXT DEFAULT 'inactive',
-                started_at  TEXT DEFAULT '',
-                ends_at     TEXT DEFAULT '',
-                winner_id   BIGINT DEFAULT NULL,
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+                id         SERIAL PRIMARY KEY,
+                status     TEXT DEFAULT 'inactive',
+                started_at TEXT DEFAULT '',
+                ends_at    TEXT DEFAULT '',
+                winner_id  BIGINT DEFAULT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Ovoz berish
         cur.execute("""
             CREATE TABLE IF NOT EXISTS votes (
-                id          SERIAL PRIMARY KEY,
-                election_id INTEGER,
-                voter_id    BIGINT,
+                id           SERIAL PRIMARY KEY,
+                election_id  INTEGER,
+                voter_id     BIGINT,
                 candidate_id BIGINT,
-                voted_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+                voted_at     TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(election_id, voter_id)
             )
         """)
-        # Nomzodlar
         cur.execute("""
             CREATE TABLE IF NOT EXISTS candidates (
                 id          SERIAL PRIMARY KEY,
@@ -129,69 +134,139 @@ class Database:
                 UNIQUE(election_id, user_id)
             )
         """)
-        # Hisobotlar
         cur.execute("""
             CREATE TABLE IF NOT EXISTS reports (
-                id          SERIAL PRIMARY KEY,
+                id           SERIAL PRIMARY KEY,
                 sub_admin_id BIGINT,
-                text        TEXT NOT NULL,
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+                text         TEXT NOT NULL,
+                created_at   TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Moash va jarimalar
         cur.execute("""
             CREATE TABLE IF NOT EXISTS payments (
-                id          SERIAL PRIMARY KEY,
-                admin_id    BIGINT,
-                target_id   BIGINT,
-                amount      REAL,
-                pay_type    TEXT DEFAULT 'salary',
-                note        TEXT DEFAULT '',
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+                id         SERIAL PRIMARY KEY,
+                admin_id   BIGINT,
+                target_id  BIGINT,
+                amount     REAL,
+                pay_type   TEXT DEFAULT 'salary',
+                note       TEXT DEFAULT '',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        # Kutayotgan savollar (yordamchi admin tomonidan)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS pending_questions (
-                id          SERIAL PRIMARY KEY,
+                id           SERIAL PRIMARY KEY,
                 sub_admin_id BIGINT,
-                text        TEXT NOT NULL,
-                q_type      TEXT NOT NULL,
-                options     TEXT DEFAULT '',
-                correct     TEXT NOT NULL DEFAULT '',
-                coins       REAL DEFAULT 5,
-                category    TEXT DEFAULT 'Umumiy',
-                difficulty  TEXT DEFAULT 'orta',
-                explanation TEXT DEFAULT '',
-                image_id    TEXT DEFAULT '',
-                time_limit  TEXT DEFAULT '',
-                created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
-                status      TEXT DEFAULT 'pending'
+                text         TEXT NOT NULL,
+                q_type       TEXT NOT NULL,
+                options      TEXT DEFAULT '',
+                correct      TEXT NOT NULL DEFAULT '',
+                coins        REAL DEFAULT 5,
+                category     TEXT DEFAULT 'Umumiy',
+                difficulty   TEXT DEFAULT 'orta',
+                explanation  TEXT DEFAULT '',
+                image_id     TEXT DEFAULT '',
+                time_limit   TEXT DEFAULT '',
+                created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+                status       TEXT DEFAULT 'pending'
             )
         """)
-
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS groups (
+                chat_id    BIGINT PRIMARY KEY,
+                title      TEXT DEFAULT '',
+                is_main    INTEGER DEFAULT 0,
+                is_active  INTEGER DEFAULT 1,
+                added_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+                category   TEXT DEFAULT 'Barchasi'
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_active_questions (
+                chat_id     BIGINT PRIMARY KEY,
+                question_id INTEGER,
+                correct     TEXT,
+                coins       REAL DEFAULT 5,
+                asked_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+                is_open     INTEGER DEFAULT 1
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_answers (
+                id          SERIAL PRIMARY KEY,
+                chat_id     BIGINT,
+                user_id     BIGINT,
+                question_id INTEGER,
+                is_correct  INTEGER DEFAULT 0,
+                answered_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(chat_id, user_id, question_id)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS group_used_questions (
+                id          SERIAL PRIMARY KEY,
+                chat_id     BIGINT,
+                question_id INTEGER,
+                used_at     TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(chat_id, question_id)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS duels (
+                id               SERIAL PRIMARY KEY,
+                challenger_id    BIGINT,
+                opponent_id      BIGINT,
+                bet              REAL DEFAULT 10,
+                status           TEXT DEFAULT 'pending',
+                winner_id        BIGINT DEFAULT NULL,
+                challenger_score INTEGER DEFAULT 0,
+                opponent_score   INTEGER DEFAULT 0,
+                total_questions  INTEGER DEFAULT 5,
+                created_at       TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS duel_questions (
+                id          SERIAL PRIMARY KEY,
+                duel_id     INTEGER,
+                question_id INTEGER,
+                order_num   INTEGER
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS duel_answers (
+                id          SERIAL PRIMARY KEY,
+                duel_id     INTEGER,
+                user_id     BIGINT,
+                question_id INTEGER,
+                is_correct  INTEGER DEFAULT 0,
+                answered_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(duel_id, user_id, question_id)
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS leagues (
+                user_id     BIGINT PRIMARY KEY,
+                league      TEXT DEFAULT 'bronza',
+                points      INTEGER DEFAULT 0,
+                week_points INTEGER DEFAULT 0,
+                season      INTEGER DEFAULT 1,
+                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         # Migrate: ustunlar qo'shish
-        for col, typedef in [
-            ("referrer_id", "BIGINT DEFAULT NULL"),
-            ("ref_count", "INTEGER DEFAULT 0"),
-            ("added_by", "BIGINT DEFAULT NULL"),
-            ("is_approved", "INTEGER DEFAULT 1"),
-            ("reply", "TEXT DEFAULT ''"),
+        for sql in [
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS referrer_id BIGINT DEFAULT NULL",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS ref_count INTEGER DEFAULT 0",
+            "ALTER TABLE questions ADD COLUMN IF NOT EXISTS added_by BIGINT DEFAULT NULL",
+            "ALTER TABLE questions ADD COLUMN IF NOT EXISTS is_approved INTEGER DEFAULT 1",
+            "ALTER TABLE questions ADD COLUMN IF NOT EXISTS time_limit TEXT DEFAULT ''",
+            "ALTER TABLE feedbacks ADD COLUMN IF NOT EXISTS reply TEXT DEFAULT ''",
         ]:
             try:
-                if col in ["referrer_id", "ref_count"]:
-                    cur.execute(f"ALTER TABLE users ADD COLUMN {col} {typedef}")
-                elif col in ["added_by", "is_approved"]:
-                    cur.execute(f"ALTER TABLE questions ADD COLUMN {col} {typedef}")
-                elif col == "reply":
-                    cur.execute(f"ALTER TABLE feedbacks ADD COLUMN {col} {typedef}")
-            except: pass
-
-        try:
-            cur.execute("ALTER TABLE questions ADD COLUMN time_limit TEXT DEFAULT ''")
-        except: pass
-        self.create_group_tables()
-        self.create_duel_tables()
+                cur.execute(sql)
+            except Exception:
+                pass
 
     # ── USERS ─────────────────────────────────────────────────────────────────
     def add_user(self, user_id, username, first_name, referrer_id=None):
@@ -200,37 +275,36 @@ class Database:
             INSERT INTO users (user_id, username, first_name, referrer_id)
             VALUES (%s, %s, %s, %s) ON CONFLICT (user_id) DO NOTHING
         """, (user_id, username, first_name, referrer_id))
-        # Referal bonus
         if referrer_id:
-            cur.execute("SELECT user_id FROM users WHERE user_id=%s", (user_id,))
-            # Faqat yangi foydalanuvchi bo'lsa bonus berish
-            cur.execute("UPDATE users SET coins=coins+30, ref_count=ref_count+1 WHERE user_id=%s", (referrer_id,))
+            cur.execute("""
+                UPDATE users SET coins=coins+30, ref_count=ref_count+1
+                WHERE user_id=%s
+            """, (referrer_id,))
 
     def get_user(self, user_id):
         cur = self.get_conn().cursor()
-        cur.execute(
-            "SELECT user_id, username, first_name, coins, total_ans, correct_ans, streak, max_streak, join_date FROM users WHERE user_id=%s",
-            (user_id,)
-        )
-        return cur.fetchone()
-
-    def get_user_full(self, user_id):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT * FROM users WHERE user_id=%s", (user_id,))
+        cur.execute("""
+            SELECT user_id, username, first_name, coins, total_ans,
+                   correct_ans, streak, max_streak, join_date
+            FROM users WHERE user_id=%s
+        """, (user_id,))
         return cur.fetchone()
 
     def add_coins(self, user_id, amount):
         cur = self.get_conn().cursor()
-        cur.execute("UPDATE users SET coins = coins + %s WHERE user_id = %s", (amount, user_id))
+        cur.execute("UPDATE users SET coins=coins+%s WHERE user_id=%s", (amount, user_id))
 
     def update_streak(self, user_id, is_correct):
         user = self.get_user(user_id)
-        if not user: return 0
+        if not user:
+            return 0
         cur = self.get_conn().cursor()
         if is_correct:
             new_streak = user[6] + 1
             max_streak = max(user[7], new_streak)
-            cur.execute("UPDATE users SET streak=%s, max_streak=%s WHERE user_id=%s", (new_streak, max_streak, user_id))
+            cur.execute(
+                "UPDATE users SET streak=%s, max_streak=%s WHERE user_id=%s",
+                (new_streak, max_streak, user_id))
             return new_streak
         else:
             cur.execute("UPDATE users SET streak=0 WHERE user_id=%s", (user_id,))
@@ -238,17 +312,26 @@ class Database:
 
     def get_leaderboard(self, limit=10):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT user_id, first_name, username, coins FROM users ORDER BY coins DESC LIMIT %s", (limit,))
+        cur.execute("""
+            SELECT user_id, first_name, username, coins
+            FROM users ORDER BY coins DESC LIMIT %s
+        """, (limit,))
         return cur.fetchall()
 
     def get_top10_users(self):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT user_id, first_name, username, coins FROM users ORDER BY coins DESC LIMIT 10")
+        cur.execute("""
+            SELECT user_id, first_name, username, coins
+            FROM users ORDER BY coins DESC LIMIT 10
+        """)
         return cur.fetchall()
 
     def get_user_rank(self, user_id):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT COUNT(*)+1 FROM users WHERE coins > (SELECT COALESCE((SELECT coins FROM users WHERE user_id=%s),0))", (user_id,))
+        cur.execute("""
+            SELECT COUNT(*)+1 FROM users
+            WHERE coins > (SELECT COALESCE((SELECT coins FROM users WHERE user_id=%s),0))
+        """, (user_id,))
         row = cur.fetchone()
         return row[0] if row else 0
 
@@ -278,7 +361,10 @@ class Database:
         cur = self.get_conn().cursor()
         cur.execute("SELECT name FROM categories ORDER BY name")
         db_cats = [r[0] for r in cur.fetchall()]
-        cur.execute("SELECT DISTINCT category FROM questions WHERE is_active=1 AND q_type NOT IN ('writing','essay','reading','speaking')")
+        cur.execute("""
+            SELECT DISTINCT category FROM questions
+            WHERE is_active=1 AND q_type NOT IN ('writing','essay','reading','speaking')
+        """)
         q_cats = [r[0] for r in cur.fetchall()]
         return list(dict.fromkeys(db_cats + q_cats))
 
@@ -287,7 +373,9 @@ class Database:
         result = []
         cur = self.get_conn().cursor()
         for cat in cats:
-            cur.execute("SELECT COUNT(*) FROM questions WHERE is_active=1 AND category=%s", (cat,))
+            cur.execute(
+                "SELECT COUNT(*) FROM questions WHERE is_active=1 AND category=%s",
+                (cat,))
             count = cur.fetchone()[0]
             result.append((cat, count))
         return result
@@ -295,21 +383,29 @@ class Database:
     def add_category(self, name):
         cur = self.get_conn().cursor()
         try:
-            cur.execute("INSERT INTO categories (name) VALUES (%s) ON CONFLICT DO NOTHING", (name,))
-        except: pass
+            cur.execute(
+                "INSERT INTO categories (name) VALUES (%s) ON CONFLICT DO NOTHING",
+                (name,))
+        except Exception:
+            pass
 
     def delete_category(self, name):
         cur = self.get_conn().cursor()
         cur.execute("DELETE FROM categories WHERE name=%s", (name,))
 
     # ── QUESTIONS ─────────────────────────────────────────────────────────────
-    def add_question(self, text, q_type, options, correct, coins, category, difficulty, explanation, image_id="", time_limit="", added_by=None, is_approved=1):
+    def add_question(self, text, q_type, options, correct, coins, category,
+                     difficulty, explanation, image_id="", time_limit="",
+                     added_by=None, is_approved=1):
         cur = self.get_conn().cursor()
         cur.execute("""
-            INSERT INTO questions (text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit, added_by, is_approved)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit, added_by, is_approved))
-        if is_approved and q_type not in ('writing', 'essay', 'reading', 'speaking'):
+            INSERT INTO questions
+                (text, q_type, options, correct, coins, category, difficulty,
+                 explanation, image_id, time_limit, added_by, is_approved)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        """, (text, q_type, options, correct, coins, category, difficulty,
+              explanation, image_id, time_limit, added_by, is_approved))
+        if is_approved and q_type not in ('writing','essay','reading','speaking'):
             self.add_category(category)
 
     def get_random_question(self, user_id, category=None, q_type=None):
@@ -329,36 +425,53 @@ class Database:
                 conditions.append("q_type=%s")
                 params.append(q_type)
         else:
-            conditions.append("q_type NOT IN ('writing','essay','reading','speaking','listening')")
+            conditions.append(
+                "q_type NOT IN ('writing','essay','reading','speaking','listening')")
         if answered_ids:
             conditions.append("id != ALL(%s)")
             params.append(answered_ids)
         where = " AND ".join(conditions)
-        cur.execute(f"SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1", params)
+        cur.execute(f"""
+            SELECT id, text, q_type, options, correct, coins, category,
+                   difficulty, explanation, image_id, time_limit
+            FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1
+        """, params)
         return cur.fetchone()
 
     def get_any_question_by_type(self, q_type):
         cur = self.get_conn().cursor()
-        cur.execute(
-            "SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit FROM questions WHERE is_active=1 AND is_approved=1 AND q_type=%s ORDER BY RANDOM() LIMIT 1",
-            (q_type,)
-        )
+        cur.execute("""
+            SELECT id, text, q_type, options, correct, coins, category,
+                   difficulty, explanation, image_id, time_limit
+            FROM questions WHERE is_active=1 AND is_approved=1 AND q_type=%s
+            ORDER BY RANDOM() LIMIT 1
+        """, (q_type,))
         return cur.fetchone()
 
     def get_question_by_id(self, q_id):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit FROM questions WHERE id=%s", (q_id,))
+        cur.execute("""
+            SELECT id, text, q_type, options, correct, coins, category,
+                   difficulty, explanation, image_id, time_limit
+            FROM questions WHERE id=%s
+        """, (q_id,))
         return cur.fetchone()
 
     def update_question_field(self, q_id, field, value):
-        allowed = ["text", "options", "correct", "coins", "category", "difficulty", "explanation", "image_id", "time_limit"]
-        if field not in allowed: return
+        allowed = ["text","options","correct","coins","category","difficulty",
+                   "explanation","image_id","time_limit"]
+        if field not in allowed:
+            return
         cur = self.get_conn().cursor()
         cur.execute(f"UPDATE questions SET {field}=%s WHERE id=%s", (value, q_id))
 
     def get_all_questions(self):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT id, text, q_type, options, correct, coins, category, difficulty FROM questions WHERE is_active=1 AND is_approved=1 ORDER BY id DESC")
+        cur.execute("""
+            SELECT id, text, q_type, options, correct, coins, category, difficulty
+            FROM questions WHERE is_active=1 AND is_approved=1
+            ORDER BY id DESC
+        """)
         return cur.fetchall()
 
     def delete_question(self, q_id):
@@ -369,32 +482,52 @@ class Database:
     def save_answer(self, user_id, question_id, is_correct):
         cur = self.get_conn().cursor()
         try:
-            cur.execute("INSERT INTO answers (user_id, question_id, is_correct) VALUES (%s, %s, %s) ON CONFLICT (user_id, question_id) DO NOTHING", (user_id, question_id, int(is_correct)))
-            cur.execute("UPDATE users SET total_ans=total_ans+1, correct_ans=correct_ans+%s WHERE user_id=%s", (int(is_correct), user_id))
-        except: pass
+            cur.execute("""
+                INSERT INTO answers (user_id, question_id, is_correct)
+                VALUES (%s,%s,%s) ON CONFLICT (user_id, question_id) DO NOTHING
+            """, (user_id, question_id, int(is_correct)))
+            cur.execute("""
+                UPDATE users SET total_ans=total_ans+1, correct_ans=correct_ans+%s
+                WHERE user_id=%s
+            """, (int(is_correct), user_id))
+        except Exception:
+            pass
 
     def already_answered(self, user_id, question_id):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT 1 FROM answers WHERE user_id=%s AND question_id=%s", (user_id, question_id))
+        cur.execute("""
+            SELECT 1 FROM answers WHERE user_id=%s AND question_id=%s
+        """, (user_id, question_id))
         return cur.fetchone() is not None
 
     # ── FEEDBACKS ─────────────────────────────────────────────────────────────
     def save_feedback(self, user_id, first_name, username, text):
         cur = self.get_conn().cursor()
-        cur.execute("INSERT INTO feedbacks (user_id, first_name, username, text) VALUES (%s, %s, %s, %s)", (user_id, first_name, username, text))
+        cur.execute("""
+            INSERT INTO feedbacks (user_id, first_name, username, text)
+            VALUES (%s,%s,%s,%s)
+        """, (user_id, first_name, username, text))
 
     def get_feedbacks(self, limit=50):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT id, user_id, first_name, username, text, created_at, is_read FROM feedbacks ORDER BY created_at DESC LIMIT %s", (limit,))
+        cur.execute("""
+            SELECT id, user_id, first_name, username, text, created_at, is_read
+            FROM feedbacks ORDER BY created_at DESC LIMIT %s
+        """, (limit,))
         return cur.fetchall()
 
     def save_feedback_reply(self, fb_id, reply):
         cur = self.get_conn().cursor()
-        cur.execute("UPDATE feedbacks SET reply=%s, is_read=1 WHERE id=%s", (reply, fb_id))
+        cur.execute(
+            "UPDATE feedbacks SET reply=%s, is_read=1 WHERE id=%s",
+            (reply, fb_id))
 
     def get_feedback_by_id(self, fb_id):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT id, user_id, first_name, username, text, created_at, is_read, reply FROM feedbacks WHERE id=%s", (fb_id,))
+        cur.execute("""
+            SELECT id, user_id, first_name, username, text, created_at, is_read, reply
+            FROM feedbacks WHERE id=%s
+        """, (fb_id,))
         return cur.fetchone()
 
     def delete_feedback(self, fb_id):
@@ -409,12 +542,17 @@ class Database:
     # ── STATS ─────────────────────────────────────────────────────────────────
     def get_stats(self):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT COUNT(*) FROM users"); users = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM questions WHERE is_active=1 AND is_approved=1"); questions = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM answers"); answers = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM answers WHERE is_correct=1"); correct = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM users")
+        users = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM questions WHERE is_active=1 AND is_approved=1")
+        questions = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM answers")
+        answers = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM answers WHERE is_correct=1")
+        correct = cur.fetchone()[0]
         accuracy = round((correct / answers * 100), 1) if answers > 0 else 0
-        return {"users": users, "questions": questions, "answers": answers, "correct": correct, "accuracy": accuracy}
+        return {"users": users, "questions": questions,
+                "answers": answers, "correct": correct, "accuracy": accuracy}
 
     # ── SUB ADMINS ────────────────────────────────────────────────────────────
     def add_sub_admin(self, user_id, username, first_name, term_days=21):
@@ -423,8 +561,9 @@ class Database:
         cur = self.get_conn().cursor()
         cur.execute("""
             INSERT INTO sub_admins (user_id, username, first_name, term_end, is_active)
-            VALUES (%s, %s, %s, %s, 1)
-            ON CONFLICT (user_id) DO UPDATE SET is_active=1, term_end=%s, first_name=%s, username=%s
+            VALUES (%s,%s,%s,%s,1)
+            ON CONFLICT (user_id) DO UPDATE
+                SET is_active=1, term_end=%s, first_name=%s, username=%s
         """, (user_id, username, first_name, term_end, term_end, first_name, username))
 
     def remove_sub_admin(self, user_id):
@@ -433,7 +572,9 @@ class Database:
 
     def is_sub_admin(self, user_id):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT 1 FROM sub_admins WHERE user_id=%s AND is_active=1", (user_id,))
+        cur.execute(
+            "SELECT 1 FROM sub_admins WHERE user_id=%s AND is_active=1",
+            (user_id,))
         return cur.fetchone() is not None
 
     def get_sub_admin(self, user_id):
@@ -448,12 +589,17 @@ class Database:
 
     def set_sub_admin_salary(self, user_id, salary):
         cur = self.get_conn().cursor()
-        cur.execute("UPDATE sub_admins SET salary=%s WHERE user_id=%s", (salary, user_id))
+        cur.execute(
+            "UPDATE sub_admins SET salary=%s WHERE user_id=%s",
+            (salary, user_id))
 
     def add_sub_admin_warning(self, user_id):
         cur = self.get_conn().cursor()
-        cur.execute("UPDATE sub_admins SET warnings=warnings+1 WHERE user_id=%s", (user_id,))
-        cur.execute("SELECT warnings FROM sub_admins WHERE user_id=%s", (user_id,))
+        cur.execute(
+            "UPDATE sub_admins SET warnings=warnings+1 WHERE user_id=%s",
+            (user_id,))
+        cur.execute(
+            "SELECT warnings FROM sub_admins WHERE user_id=%s", (user_id,))
         row = cur.fetchone()
         return row[0] if row else 0
 
@@ -461,99 +607,33 @@ class Database:
         from datetime import datetime
         cur = self.get_conn().cursor()
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute("UPDATE sub_admins SET last_report=%s, report_count=report_count+1 WHERE user_id=%s", (now, user_id))
-
-    # ── ELECTIONS ────────────────────────────────────────────────────────────
-    def create_election(self):
-        from datetime import datetime, timedelta
-        cur = self.get_conn().cursor()
-        # Avvalgi faol saylovni tugatamiz
-        cur.execute("UPDATE elections SET status='finished' WHERE status IN ('active','nomination')")
-        started = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ends = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute("INSERT INTO elections (status, started_at, ends_at) VALUES ('nomination', %s, %s) RETURNING id", (started, ends))
-        return cur.fetchone()[0]
-
-    def get_active_election(self):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT * FROM elections WHERE status IN ('active','nomination') ORDER BY id DESC LIMIT 1")
-        return cur.fetchone()
-
-    def start_voting(self, election_id):
-        cur = self.get_conn().cursor()
-        cur.execute("UPDATE elections SET status='active' WHERE id=%s", (election_id,))
-
-    def finish_election(self, election_id):
-        cur = self.get_conn().cursor()
-        # G'olibni topish
         cur.execute("""
-            SELECT candidate_id, COUNT(*) as vote_count FROM votes WHERE election_id=%s
-            GROUP BY candidate_id ORDER BY vote_count DESC LIMIT 1
-        """, (election_id,))
-        row = cur.fetchone()
-        winner_id = row[0] if row else None
-        cur.execute("UPDATE elections SET status='finished', winner_id=%s WHERE id=%s", (winner_id, election_id))
-        return winner_id
+            UPDATE sub_admins SET last_report=%s, report_count=report_count+1
+            WHERE user_id=%s
+        """, (now, user_id))
 
-    def get_election_results(self, election_id):
-        cur = self.get_conn().cursor()
-        cur.execute("""
-            SELECT c.user_id, c.first_name, c.username, COUNT(v.id) as votes
-            FROM candidates c LEFT JOIN votes v ON v.candidate_id=c.user_id AND v.election_id=%s
-            WHERE c.election_id=%s AND c.confirmed=1
-            GROUP BY c.user_id, c.first_name, c.username ORDER BY votes DESC
-        """, (election_id, election_id))
-        return cur.fetchall()
-
-    # ── CANDIDATES ────────────────────────────────────────────────────────────
-    def add_candidate(self, election_id, user_id, username, first_name):
-        cur = self.get_conn().cursor()
-        try:
-            cur.execute("INSERT INTO candidates (election_id, user_id, username, first_name, confirmed) VALUES (%s, %s, %s, %s, 0)", (election_id, user_id, username, first_name))
-        except: pass
-
-    def confirm_candidate(self, election_id, user_id):
-        cur = self.get_conn().cursor()
-        cur.execute("UPDATE candidates SET confirmed=1 WHERE election_id=%s AND user_id=%s", (election_id, user_id))
-
-    def get_candidates(self, election_id):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT user_id, first_name, username, confirmed FROM candidates WHERE election_id=%s", (election_id,))
-        return cur.fetchall()
-
-    def get_confirmed_candidates(self, election_id):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT user_id, first_name, username FROM candidates WHERE election_id=%s AND confirmed=1", (election_id,))
-        return cur.fetchall()
-
-    # ── VOTES ────────────────────────────────────────────────────────────────
-    def cast_vote(self, election_id, voter_id, candidate_id):
-        cur = self.get_conn().cursor()
-        try:
-            cur.execute("INSERT INTO votes (election_id, voter_id, candidate_id) VALUES (%s, %s, %s)", (election_id, voter_id, candidate_id))
-            return True
-        except: return False
-
-    def has_voted(self, election_id, voter_id):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT 1 FROM votes WHERE election_id=%s AND voter_id=%s", (election_id, voter_id))
-        return cur.fetchone() is not None
-
-    # ── REPORTS ──────────────────────────────────────────────────────────────
     def save_report(self, sub_admin_id, text):
         cur = self.get_conn().cursor()
-        cur.execute("INSERT INTO reports (sub_admin_id, text) VALUES (%s, %s)", (sub_admin_id, text))
+        cur.execute(
+            "INSERT INTO reports (sub_admin_id, text) VALUES (%s,%s)",
+            (sub_admin_id, text))
         self.update_last_report(sub_admin_id)
 
     def get_reports(self, limit=20):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT r.id, r.sub_admin_id, s.first_name, r.text, r.created_at FROM reports r LEFT JOIN sub_admins s ON s.user_id=r.sub_admin_id ORDER BY r.created_at DESC LIMIT %s", (limit,))
+        cur.execute("""
+            SELECT r.id, r.sub_admin_id, s.first_name, r.text, r.created_at
+            FROM reports r LEFT JOIN sub_admins s ON s.user_id=r.sub_admin_id
+            ORDER BY r.created_at DESC LIMIT %s
+        """, (limit,))
         return cur.fetchall()
 
-    # ── PAYMENTS ─────────────────────────────────────────────────────────────
     def add_payment(self, admin_id, target_id, amount, pay_type, note=""):
         cur = self.get_conn().cursor()
-        cur.execute("INSERT INTO payments (admin_id, target_id, amount, pay_type, note) VALUES (%s, %s, %s, %s, %s)", (admin_id, target_id, amount, pay_type, note))
+        cur.execute("""
+            INSERT INTO payments (admin_id, target_id, amount, pay_type, note)
+            VALUES (%s,%s,%s,%s,%s)
+        """, (admin_id, target_id, amount, pay_type, note))
         if pay_type == "fine":
             self.add_coins(target_id, -amount)
         else:
@@ -562,23 +642,36 @@ class Database:
     def get_payments(self, target_id=None, limit=20):
         cur = self.get_conn().cursor()
         if target_id:
-            cur.execute("SELECT * FROM payments WHERE target_id=%s ORDER BY created_at DESC LIMIT %s", (target_id, limit))
+            cur.execute("""
+                SELECT * FROM payments WHERE target_id=%s
+                ORDER BY created_at DESC LIMIT %s
+            """, (target_id, limit))
         else:
-            cur.execute("SELECT * FROM payments ORDER BY created_at DESC LIMIT %s", (limit,))
+            cur.execute("""
+                SELECT * FROM payments ORDER BY created_at DESC LIMIT %s
+            """, (limit,))
         return cur.fetchall()
 
     # ── PENDING QUESTIONS ────────────────────────────────────────────────────
-    def add_pending_question(self, sub_admin_id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id="", time_limit=""):
+    def add_pending_question(self, sub_admin_id, text, q_type, options, correct,
+                              coins, category, difficulty, explanation,
+                              image_id="", time_limit=""):
         cur = self.get_conn().cursor()
         cur.execute("""
-            INSERT INTO pending_questions (sub_admin_id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-        """, (sub_admin_id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit))
+            INSERT INTO pending_questions
+                (sub_admin_id, text, q_type, options, correct, coins,
+                 category, difficulty, explanation, image_id, time_limit)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id
+        """, (sub_admin_id, text, q_type, options, correct, coins,
+              category, difficulty, explanation, image_id, time_limit))
         return cur.fetchone()[0]
 
     def get_pending_questions(self):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT * FROM pending_questions WHERE status='pending' ORDER BY created_at DESC")
+        cur.execute("""
+            SELECT * FROM pending_questions WHERE status='pending'
+            ORDER BY created_at DESC
+        """)
         return cur.fetchall()
 
     def get_pending_question_by_id(self, pq_id):
@@ -589,57 +682,128 @@ class Database:
     def approve_pending_question(self, pq_id):
         cur = self.get_conn().cursor()
         pq = self.get_pending_question_by_id(pq_id)
-        if not pq: return False
-        # pending_questions: id, sub_admin_id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit, created_at, status
-        _, sub_id, text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit, _, _ = pq
-        self.add_question(text, q_type, options, correct, coins, category, difficulty, explanation, image_id, time_limit, added_by=sub_id, is_approved=1)
-        cur.execute("UPDATE pending_questions SET status='approved' WHERE id=%s", (pq_id,))
+        if not pq:
+            return False
+        _, sub_id, text, q_type, options, correct, coins, category, \
+            difficulty, explanation, image_id, time_limit, _, _ = pq
+        self.add_question(text, q_type, options, correct, coins, category,
+                          difficulty, explanation, image_id, time_limit,
+                          added_by=sub_id, is_approved=1)
+        cur.execute(
+            "UPDATE pending_questions SET status='approved' WHERE id=%s",
+            (pq_id,))
         return True
 
     def reject_pending_question(self, pq_id):
         cur = self.get_conn().cursor()
-        cur.execute("UPDATE pending_questions SET status='rejected' WHERE id=%s", (pq_id,))
+        cur.execute(
+            "UPDATE pending_questions SET status='rejected' WHERE id=%s",
+            (pq_id,))
 
+    # ── ELECTIONS ────────────────────────────────────────────────────────────
+    def create_election(self):
+        from datetime import datetime, timedelta
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "UPDATE elections SET status='finished' WHERE status IN ('active','nomination')")
+        started = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ends = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("""
+            INSERT INTO elections (status, started_at, ends_at)
+            VALUES ('nomination',%s,%s) RETURNING id
+        """, (started, ends))
+        return cur.fetchone()[0]
 
-
-    # ── GROUPS ───────────────────────────────────────────────────────────────
-    def create_group_tables(self):
+    def get_active_election(self):
         cur = self.get_conn().cursor()
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS groups (
-                chat_id     BIGINT PRIMARY KEY,
-                title       TEXT DEFAULT '',
-                is_main     INTEGER DEFAULT 0,
-                is_active   INTEGER DEFAULT 1,
-                added_at    TEXT DEFAULT CURRENT_TIMESTAMP,
-                category    TEXT DEFAULT 'Barchasi'
-            )
+            SELECT * FROM elections WHERE status IN ('active','nomination')
+            ORDER BY id DESC LIMIT 1
         """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS group_answers (
-                id          SERIAL PRIMARY KEY,
-                chat_id     BIGINT,
-                user_id     BIGINT,
-                question_id INTEGER,
-                is_correct  INTEGER DEFAULT 0,
-                answered_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS group_active_questions (
-                chat_id     BIGINT PRIMARY KEY,
-                question_id INTEGER,
-                correct     TEXT,
-                coins       REAL DEFAULT 5,
-                asked_at    TEXT DEFAULT CURRENT_TIMESTAMP,
-                is_open     INTEGER DEFAULT 1
-            )
-        """)
+        return cur.fetchone()
 
+    def start_voting(self, election_id):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "UPDATE elections SET status='active' WHERE id=%s",
+            (election_id,))
+
+    def finish_election(self, election_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT candidate_id, COUNT(*) as vote_count FROM votes
+            WHERE election_id=%s
+            GROUP BY candidate_id ORDER BY vote_count DESC LIMIT 1
+        """, (election_id,))
+        row = cur.fetchone()
+        winner_id = row[0] if row else None
+        cur.execute(
+            "UPDATE elections SET status='finished', winner_id=%s WHERE id=%s",
+            (winner_id, election_id))
+        return winner_id
+
+    def get_election_results(self, election_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT c.user_id, c.first_name, c.username, COUNT(v.id) as votes
+            FROM candidates c
+            LEFT JOIN votes v
+                ON v.candidate_id=c.user_id AND v.election_id=%s
+            WHERE c.election_id=%s AND c.confirmed=1
+            GROUP BY c.user_id, c.first_name, c.username
+            ORDER BY votes DESC
+        """, (election_id, election_id))
+        return cur.fetchall()
+
+    def add_candidate(self, election_id, user_id, username, first_name):
+        cur = self.get_conn().cursor()
+        try:
+            cur.execute("""
+                INSERT INTO candidates (election_id, user_id, username, first_name, confirmed)
+                VALUES (%s,%s,%s,%s,0)
+            """, (election_id, user_id, username, first_name))
+        except Exception:
+            pass
+
+    def confirm_candidate(self, election_id, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            UPDATE candidates SET confirmed=1
+            WHERE election_id=%s AND user_id=%s
+        """, (election_id, user_id))
+
+    def get_confirmed_candidates(self, election_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT user_id, first_name, username FROM candidates
+            WHERE election_id=%s AND confirmed=1
+        """, (election_id,))
+        return cur.fetchall()
+
+    def cast_vote(self, election_id, voter_id, candidate_id):
+        cur = self.get_conn().cursor()
+        try:
+            cur.execute("""
+                INSERT INTO votes (election_id, voter_id, candidate_id)
+                VALUES (%s,%s,%s)
+            """, (election_id, voter_id, candidate_id))
+            return True
+        except Exception:
+            return False
+
+    def has_voted(self, election_id, voter_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT 1 FROM votes WHERE election_id=%s AND voter_id=%s
+        """, (election_id, voter_id))
+        return cur.fetchone() is not None
+
+    # ── GROUPS ───────────────────────────────────────────────────────────────
     def add_group(self, chat_id, title):
         cur = self.get_conn().cursor()
         cur.execute("""
-            INSERT INTO groups (chat_id, title) VALUES (%s, %s)
+            INSERT INTO groups (chat_id, title)
+            VALUES (%s,%s)
             ON CONFLICT (chat_id) DO UPDATE SET title=%s, is_active=1
         """, (chat_id, title, title))
 
@@ -662,55 +826,91 @@ class Database:
         cur.execute("UPDATE groups SET is_main=0")
         cur.execute("UPDATE groups SET is_main=1 WHERE chat_id=%s", (chat_id,))
 
-    def get_main_group(self):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT chat_id FROM groups WHERE is_main=1 LIMIT 1")
-        row = cur.fetchone()
-        return row[0] if row else None
-
-    def set_group_category(self, chat_id, category):
-        cur = self.get_conn().cursor()
-        cur.execute("UPDATE groups SET category=%s WHERE chat_id=%s", (category, chat_id))
-
     def get_group_category(self, chat_id):
         cur = self.get_conn().cursor()
         cur.execute("SELECT category FROM groups WHERE chat_id=%s", (chat_id,))
         row = cur.fetchone()
         return row[0] if row else "Barchasi"
 
-    # Guruh aktiv savoli
+    def set_group_category(self, chat_id, category):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "UPDATE groups SET category=%s WHERE chat_id=%s",
+            (category, chat_id))
+
     def set_group_question(self, chat_id, question_id, correct, coins):
         cur = self.get_conn().cursor()
         cur.execute("""
             INSERT INTO group_active_questions (chat_id, question_id, correct, coins, is_open)
-            VALUES (%s, %s, %s, %s, 1)
-            ON CONFLICT (chat_id) DO UPDATE SET question_id=%s, correct=%s, coins=%s, is_open=1, asked_at=CURRENT_TIMESTAMP
+            VALUES (%s,%s,%s,%s,1)
+            ON CONFLICT (chat_id) DO UPDATE
+                SET question_id=%s, correct=%s, coins=%s, is_open=1, asked_at=CURRENT_TIMESTAMP
         """, (chat_id, question_id, correct, coins, question_id, correct, coins))
+        # Guruhda ishlatilgan savollar ro'yxatiga qo'shish
+        try:
+            cur.execute("""
+                INSERT INTO group_used_questions (chat_id, question_id)
+                VALUES (%s,%s) ON CONFLICT DO NOTHING
+            """, (chat_id, question_id))
+        except Exception:
+            pass
 
     def get_group_question(self, chat_id):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT * FROM group_active_questions WHERE chat_id=%s AND is_open=1", (chat_id,))
+        cur.execute("""
+            SELECT * FROM group_active_questions
+            WHERE chat_id=%s AND is_open=1
+        """, (chat_id,))
         return cur.fetchone()
 
     def close_group_question(self, chat_id):
         cur = self.get_conn().cursor()
-        cur.execute("UPDATE group_active_questions SET is_open=0 WHERE chat_id=%s", (chat_id,))
+        cur.execute(
+            "UPDATE group_active_questions SET is_open=0 WHERE chat_id=%s",
+            (chat_id,))
 
-    # Guruh javoblari
+    def get_group_random_question(self, chat_id, category=None):
+        """Guruh uchun savol — faqat bir marta beriladi"""
+        cur = self.get_conn().cursor()
+        # Guruhda ishlatilgan savollar
+        cur.execute(
+            "SELECT question_id FROM group_used_questions WHERE chat_id=%s",
+            (chat_id,))
+        used_ids = [r[0] for r in cur.fetchall()]
+        conditions = ["is_active=1", "is_approved=1", "q_type IN ('test','open')"]
+        params = []
+        if category and category != "Barchasi":
+            conditions.append("category=%s")
+            params.append(category)
+        if used_ids:
+            conditions.append("id != ALL(%s)")
+            params.append(used_ids)
+        where = " AND ".join(conditions)
+        cur.execute(f"""
+            SELECT id, text, q_type, options, correct, coins,
+                   category, difficulty, explanation, image_id
+            FROM questions WHERE {where} ORDER BY RANDOM() LIMIT 1
+        """, params)
+        return cur.fetchone()
+
     def save_group_answer(self, chat_id, user_id, question_id, is_correct):
         cur = self.get_conn().cursor()
-        # Bir savolga bir marta javob
-        cur.execute("SELECT 1 FROM group_answers WHERE chat_id=%s AND user_id=%s AND question_id=%s",
-                    (chat_id, user_id, question_id))
-        if cur.fetchone(): return False
-        cur.execute("INSERT INTO group_answers (chat_id, user_id, question_id, is_correct) VALUES (%s,%s,%s,%s)",
-                    (chat_id, user_id, question_id, int(is_correct)))
-        return True
+        try:
+            cur.execute("""
+                INSERT INTO group_answers (chat_id, user_id, question_id, is_correct)
+                VALUES (%s,%s,%s,%s)
+                ON CONFLICT (chat_id, user_id, question_id) DO NOTHING
+            """, (chat_id, user_id, question_id, int(is_correct)))
+            return True
+        except Exception:
+            return False
 
     def already_answered_group(self, chat_id, user_id, question_id):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT 1 FROM group_answers WHERE chat_id=%s AND user_id=%s AND question_id=%s",
-                    (chat_id, user_id, question_id))
+        cur.execute("""
+            SELECT 1 FROM group_answers
+            WHERE chat_id=%s AND user_id=%s AND question_id=%s
+        """, (chat_id, user_id, question_id))
         return cur.fetchone() is not None
 
     def get_group_leaderboard(self, chat_id, limit=10):
@@ -718,7 +918,7 @@ class Database:
         cur.execute("""
             SELECT ga.user_id, u.first_name, u.username, COUNT(*) as correct_count
             FROM group_answers ga
-            LEFT JOIN users u ON u.user_id = ga.user_id
+            LEFT JOIN users u ON u.user_id=ga.user_id
             WHERE ga.chat_id=%s AND ga.is_correct=1
             GROUP BY ga.user_id, u.first_name, u.username
             ORDER BY correct_count DESC LIMIT %s
@@ -727,69 +927,154 @@ class Database:
 
     def get_group_stats(self, chat_id):
         cur = self.get_conn().cursor()
-        cur.execute("SELECT COUNT(DISTINCT user_id) FROM group_answers WHERE chat_id=%s", (chat_id,))
+        cur.execute(
+            "SELECT COUNT(DISTINCT user_id) FROM group_answers WHERE chat_id=%s",
+            (chat_id,))
         players = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM group_answers WHERE chat_id=%s AND is_correct=1", (chat_id,))
+        cur.execute(
+            "SELECT COUNT(*) FROM group_answers WHERE chat_id=%s AND is_correct=1",
+            (chat_id,))
         correct = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM group_answers WHERE chat_id=%s", (chat_id,))
+        cur.execute(
+            "SELECT COUNT(*) FROM group_answers WHERE chat_id=%s",
+            (chat_id,))
         total = cur.fetchone()[0]
         return {"players": players, "correct": correct, "total": total}
 
-    # ── DUEL TIZIMI ──────────────────────────────────────────────────────────
-    def create_duel_tables(self):
+    # ── DUELS ────────────────────────────────────────────────────────────────
+    def create_duel(self, challenger_id, opponent_id, bet=10):
         cur = self.get_conn().cursor()
         cur.execute("""
-            CREATE TABLE IF NOT EXISTS duels (
-                id          SERIAL PRIMARY KEY,
-                challenger_id BIGINT,
-                opponent_id   BIGINT,
-                bet           REAL DEFAULT 10,
-                status        TEXT DEFAULT 'pending',
-                winner_id     BIGINT DEFAULT NULL,
-                challenger_score INTEGER DEFAULT 0,
-                opponent_score   INTEGER DEFAULT 0,
-                current_question INTEGER DEFAULT 0,
-                total_questions  INTEGER DEFAULT 5,
-                created_at    TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS duel_questions (
-                id          SERIAL PRIMARY KEY,
-                duel_id     INTEGER,
-                question_id INTEGER,
-                order_num   INTEGER
-            )
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS duel_answers (
-                id          SERIAL PRIMARY KEY,
-                duel_id     INTEGER,
-                user_id     BIGINT,
-                question_id INTEGER,
-                is_correct  INTEGER DEFAULT 0,
-                answered_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(duel_id, user_id, question_id)
-            )
-        """)
-        # ── LIGA TIZIMI ──
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS leagues (
-                user_id     BIGINT PRIMARY KEY,
-                league      TEXT DEFAULT 'bronza',
-                points      INTEGER DEFAULT 0,
-                week_points INTEGER DEFAULT 0,
-                season      INTEGER DEFAULT 1,
-                updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
+            INSERT INTO duels (challenger_id, opponent_id, bet, status)
+            VALUES (%s,%s,%s,'pending') RETURNING id
+        """, (challenger_id, opponent_id, bet))
+        return cur.fetchone()[0]
 
+    def get_duel(self, duel_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT * FROM duels WHERE id=%s", (duel_id,))
+        return cur.fetchone()
+
+    def get_active_duel(self, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT * FROM duels WHERE status='active'
+            AND (challenger_id=%s OR opponent_id=%s)
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id, user_id))
+        return cur.fetchone()
+
+    def get_pending_duel(self, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT * FROM duels WHERE status='pending' AND opponent_id=%s
+            ORDER BY created_at DESC LIMIT 1
+        """, (user_id,))
+        return cur.fetchone()
+
+    def accept_duel(self, duel_id):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "UPDATE duels SET status='active' WHERE id=%s", (duel_id,))
+
+    def decline_duel(self, duel_id):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "UPDATE duels SET status='declined' WHERE id=%s", (duel_id,))
+
+    def set_duel_questions(self, duel_id, question_ids):
+        cur = self.get_conn().cursor()
+        for i, qid in enumerate(question_ids):
+            cur.execute("""
+                INSERT INTO duel_questions (duel_id, question_id, order_num)
+                VALUES (%s,%s,%s)
+            """, (duel_id, qid, i))
+
+    def get_duel_questions(self, duel_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT question_id FROM duel_questions
+            WHERE duel_id=%s ORDER BY order_num
+        """, (duel_id,))
+        return [r[0] for r in cur.fetchall()]
+
+    def save_duel_answer(self, duel_id, user_id, question_id, is_correct):
+        cur = self.get_conn().cursor()
+        try:
+            cur.execute("""
+                INSERT INTO duel_answers (duel_id, user_id, question_id, is_correct)
+                VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING
+            """, (duel_id, user_id, question_id, int(is_correct)))
+            if is_correct:
+                duel = self.get_duel(duel_id)
+                if duel and duel[1] == user_id:
+                    cur.execute("""
+                        UPDATE duels SET challenger_score=challenger_score+1
+                        WHERE id=%s
+                    """, (duel_id,))
+                elif duel:
+                    cur.execute("""
+                        UPDATE duels SET opponent_score=opponent_score+1
+                        WHERE id=%s
+                    """, (duel_id,))
+        except Exception as e:
+            logging.error(f"save_duel_answer error: {e}")
+
+    def get_duel_answer_count(self, duel_id, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT COUNT(*) FROM duel_answers
+            WHERE duel_id=%s AND user_id=%s
+        """, (duel_id, user_id))
+        return cur.fetchone()[0]
+
+    def finish_duel(self, duel_id):
+        cur = self.get_conn().cursor()
+        duel = self.get_duel(duel_id)
+        if not duel:
+            return None
+        d_id, ch_id, op_id, bet, status, winner, ch_score, op_score, total_q, created = duel
+        if ch_score > op_score:
+            winner_id = ch_id
+        elif op_score > ch_score:
+            winner_id = op_id
+        else:
+            winner_id = None
+        cur.execute("""
+            UPDATE duels SET status='finished', winner_id=%s WHERE id=%s
+        """, (winner_id, duel_id))
+        return winner_id, ch_score, op_score
+
+    def get_duel_stats(self, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN winner_id=%s THEN 1 ELSE 0 END) as wins,
+                SUM(CASE WHEN winner_id IS NOT NULL AND winner_id!=%s THEN 1 ELSE 0 END) as losses
+            FROM duels
+            WHERE status='finished' AND (challenger_id=%s OR opponent_id=%s)
+        """, (user_id, user_id, user_id, user_id))
+        return cur.fetchone()
+
+    def get_random_test_questions(self, count=5):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT id FROM questions
+            WHERE is_active=1 AND is_approved=1 AND q_type='test'
+            ORDER BY RANDOM() LIMIT %s
+        """, (count,))
+        return [r[0] for r in cur.fetchall()]
+
+    # ── LEAGUES ──────────────────────────────────────────────────────────────
     def get_or_create_league(self, user_id):
         cur = self.get_conn().cursor()
         cur.execute("SELECT * FROM leagues WHERE user_id=%s", (user_id,))
         row = cur.fetchone()
         if not row:
-            cur.execute("INSERT INTO leagues (user_id) VALUES (%s) ON CONFLICT DO NOTHING", (user_id,))
+            cur.execute(
+                "INSERT INTO leagues (user_id) VALUES (%s) ON CONFLICT DO NOTHING",
+                (user_id,))
             cur.execute("SELECT * FROM leagues WHERE user_id=%s", (user_id,))
             row = cur.fetchone()
         return row
@@ -798,7 +1083,8 @@ class Database:
         cur = self.get_conn().cursor()
         self.get_or_create_league(user_id)
         cur.execute("""
-            UPDATE leagues SET points=points+%s, week_points=week_points+%s, updated_at=CURRENT_TIMESTAMP
+            UPDATE leagues
+            SET points=points+%s, week_points=week_points+%s, updated_at=CURRENT_TIMESTAMP
             WHERE user_id=%s
         """, (points, points, user_id))
         self._update_league_rank(user_id)
@@ -807,14 +1093,22 @@ class Database:
         cur = self.get_conn().cursor()
         cur.execute("SELECT points FROM leagues WHERE user_id=%s", (user_id,))
         row = cur.fetchone()
-        if not row: return
+        if not row:
+            return
         pts = row[0]
-        if pts >= 1000: league = "olmos"
-        elif pts >= 500: league = "platina"
-        elif pts >= 200: league = "oltin"
-        elif pts >= 80:  league = "kumush"
-        else:            league = "bronza"
-        cur.execute("UPDATE leagues SET league=%s WHERE user_id=%s", (league, user_id))
+        if pts >= 1000:
+            league = "olmos"
+        elif pts >= 500:
+            league = "platina"
+        elif pts >= 200:
+            league = "oltin"
+        elif pts >= 80:
+            league = "kumush"
+        else:
+            league = "bronza"
+        cur.execute(
+            "UPDATE leagues SET league=%s WHERE user_id=%s",
+            (league, user_id))
 
     def get_league_leaderboard(self, league=None, limit=10):
         cur = self.get_conn().cursor()
@@ -845,106 +1139,5 @@ class Database:
         cur = self.get_conn().cursor()
         cur.execute("UPDATE leagues SET week_points=0")
 
-    # Duel metodlari
-    def create_duel(self, challenger_id, opponent_id, bet=10):
-        cur = self.get_conn().cursor()
-        cur.execute("""
-            INSERT INTO duels (challenger_id, opponent_id, bet, status)
-            VALUES (%s, %s, %s, 'pending') RETURNING id
-        """, (challenger_id, opponent_id, bet))
-        return cur.fetchone()[0]
-
-    def get_duel(self, duel_id):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT * FROM duels WHERE id=%s", (duel_id,))
-        return cur.fetchone()
-
-    def get_active_duel(self, user_id):
-        cur = self.get_conn().cursor()
-        cur.execute("""
-            SELECT * FROM duels WHERE status='active'
-            AND (challenger_id=%s OR opponent_id=%s)
-            ORDER BY created_at DESC LIMIT 1
-        """, (user_id, user_id))
-        return cur.fetchone()
-
-    def get_pending_duel(self, user_id):
-        cur = self.get_conn().cursor()
-        cur.execute("""
-            SELECT * FROM duels WHERE status='pending' AND opponent_id=%s
-            ORDER BY created_at DESC LIMIT 1
-        """, (user_id,))
-        return cur.fetchone()
-
-    def accept_duel(self, duel_id):
-        cur = self.get_conn().cursor()
-        cur.execute("UPDATE duels SET status='active' WHERE id=%s", (duel_id,))
-
-    def decline_duel(self, duel_id):
-        cur = self.get_conn().cursor()
-        cur.execute("UPDATE duels SET status='declined' WHERE id=%s", (duel_id,))
-
-    def set_duel_questions(self, duel_id, question_ids):
-        cur = self.get_conn().cursor()
-        for i, qid in enumerate(question_ids):
-            cur.execute("INSERT INTO duel_questions (duel_id, question_id, order_num) VALUES (%s,%s,%s)",
-                        (duel_id, qid, i))
-
-    def get_duel_questions(self, duel_id):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT question_id FROM duel_questions WHERE duel_id=%s ORDER BY order_num", (duel_id,))
-        return [r[0] for r in cur.fetchall()]
-
-    def save_duel_answer(self, duel_id, user_id, question_id, is_correct):
-        cur = self.get_conn().cursor()
-        try:
-            cur.execute("""
-                INSERT INTO duel_answers (duel_id, user_id, question_id, is_correct)
-                VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING
-            """, (duel_id, user_id, question_id, int(is_correct)))
-            if is_correct:
-                # Kim challenger kim opponent
-                duel = self.get_duel(duel_id)
-                if duel[1] == user_id:
-                    cur.execute("UPDATE duels SET challenger_score=challenger_score+1 WHERE id=%s", (duel_id,))
-                else:
-                    cur.execute("UPDATE duels SET opponent_score=opponent_score+1 WHERE id=%s", (duel_id,))
-        except: pass
-
-    def get_duel_answer_count(self, duel_id, user_id):
-        cur = self.get_conn().cursor()
-        cur.execute("SELECT COUNT(*) FROM duel_answers WHERE duel_id=%s AND user_id=%s", (duel_id, user_id))
-        return cur.fetchone()[0]
-
-    def finish_duel(self, duel_id):
-        cur = self.get_conn().cursor()
-        duel = self.get_duel(duel_id)
-        if not duel: return None
-        _, ch_id, op_id, bet, status, winner, ch_score, op_score, cur_q, total_q, created = duel
-        if ch_score > op_score: winner_id = ch_id
-        elif op_score > ch_score: winner_id = op_id
-        else: winner_id = None  # draw
-        cur.execute("UPDATE duels SET status='finished', winner_id=%s WHERE id=%s", (winner_id, duel_id))
-        return winner_id, ch_score, op_score
-
-    def get_duel_stats(self, user_id):
-        cur = self.get_conn().cursor()
-        cur.execute("""
-            SELECT
-                COUNT(*) as total,
-                SUM(CASE WHEN winner_id=%s THEN 1 ELSE 0 END) as wins,
-                SUM(CASE WHEN winner_id IS NOT NULL AND winner_id!=%s THEN 1 ELSE 0 END) as losses,
-                SUM(CASE WHEN winner_id IS NULL AND status='finished' THEN 1 ELSE 0 END) as draws
-            FROM duels WHERE status='finished' AND (challenger_id=%s OR opponent_id=%s)
-        """, (user_id, user_id, user_id, user_id))
-        return cur.fetchone()
-
-    def get_random_test_questions(self, count=5):
-        cur = self.get_conn().cursor()
-        cur.execute("""
-            SELECT id FROM questions WHERE is_active=1 AND is_approved=1 AND q_type='test'
-            ORDER BY RANDOM() LIMIT %s
-        """, (count,))
-        return [r[0] for r in cur.fetchall()]
 
 db = Database()
