@@ -254,6 +254,32 @@ class Database:
                 updated_at  TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS live_questions (
+                id           SERIAL PRIMARY KEY,
+                question_id  INTEGER,
+                q_type       TEXT DEFAULT 'test',
+                correct      TEXT DEFAULT '',
+                coins        REAL DEFAULT 5,
+                time_limit   INTEGER DEFAULT 30,
+                status       TEXT DEFAULT 'open',
+                winner_id    BIGINT DEFAULT NULL,
+                created_by   BIGINT DEFAULT NULL,
+                created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+                closed_at    TEXT DEFAULT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS live_attempts (
+                id            SERIAL PRIMARY KEY,
+                live_id       INTEGER,
+                user_id       BIGINT,
+                attempt_num   INTEGER DEFAULT 1,
+                answer_text   TEXT DEFAULT '',
+                is_correct    INTEGER DEFAULT 0,
+                answered_at   TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
         # Migrate: ustunlar qo'shish
         for sql in [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS referrer_id BIGINT DEFAULT NULL",
@@ -1138,6 +1164,128 @@ class Database:
     def reset_weekly_points(self):
         cur = self.get_conn().cursor()
         cur.execute("UPDATE leagues SET week_points=0")
+
+    # ── LIVE QUESTION TIZIMI (admin tashlaydigan ommaviy savol) ────────────────
+    def create_live_question(self, question_id, q_type, correct, coins, time_limit, created_by):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            INSERT INTO live_questions (question_id, q_type, correct, coins, time_limit, status, created_by)
+            VALUES (%s,%s,%s,%s,%s,'open',%s) RETURNING id
+        """, (question_id, q_type, correct, coins, time_limit, created_by))
+        return cur.fetchone()[0]
+
+    def get_live_question(self, live_id):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT * FROM live_questions WHERE id=%s", (live_id,))
+        return cur.fetchone()
+
+    def get_open_live_question(self):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT * FROM live_questions WHERE status='open' ORDER BY id DESC LIMIT 1")
+        return cur.fetchone()
+
+    def close_live_question(self, live_id, winner_id=None):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            UPDATE live_questions SET status='closed', winner_id=%s, closed_at=CURRENT_TIMESTAMP
+            WHERE id=%s
+        """, (winner_id, live_id))
+
+    def add_live_attempt(self, live_id, user_id, answer_text, is_correct):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM live_attempts WHERE live_id=%s AND user_id=%s",
+            (live_id, user_id))
+        prev = cur.fetchone()[0]
+        attempt_num = prev + 1
+        cur.execute("""
+            INSERT INTO live_attempts (live_id, user_id, attempt_num, answer_text, is_correct)
+            VALUES (%s,%s,%s,%s,%s)
+        """, (live_id, user_id, attempt_num, answer_text, int(is_correct)))
+        return attempt_num
+
+    def get_live_attempt_count(self, live_id, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM live_attempts WHERE live_id=%s AND user_id=%s",
+            (live_id, user_id))
+        return cur.fetchone()[0]
+
+    def has_live_correct(self, live_id, user_id):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "SELECT 1 FROM live_attempts WHERE live_id=%s AND user_id=%s AND is_correct=1",
+            (live_id, user_id))
+        return cur.fetchone() is not None
+
+    def get_live_participants(self, live_id):
+        """Har bir ishtirokchining urinishlar soni va g'olib bo'lib-bo'lmagani"""
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT la.user_id, u.first_name, u.username,
+                   COUNT(*) as attempts,
+                   MAX(la.is_correct) as got_correct,
+                   MIN(CASE WHEN la.is_correct=1 THEN la.attempt_num END) as correct_at
+            FROM live_attempts la
+            LEFT JOIN users u ON u.user_id=la.user_id
+            WHERE la.live_id=%s
+            GROUP BY la.user_id, u.first_name, u.username
+            ORDER BY got_correct DESC, attempts ASC
+        """, (live_id,))
+        return cur.fetchall()
+
+    def get_live_test_answerers(self, live_id):
+        """Test savolda kim javob berganini bilish (1 marta javob)"""
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT user_id FROM live_attempts WHERE live_id=%s
+        """, (live_id,))
+        return [r[0] for r in cur.fetchall()]
+
+    def has_live_attempted(self, live_id, user_id):
+        """Test savolda foydalanuvchi allaqachon javob berganmi"""
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "SELECT 1 FROM live_attempts WHERE live_id=%s AND user_id=%s",
+            (live_id, user_id))
+        return cur.fetchone() is not None
+
+
+def calc_sniper_bonus(base_coins, attempt_num, q_type, difficulty="orta"):
+    """
+    G'oliblik koeffitsiyenti: kam urinishda topgan ko'proq coin oladi.
+    Test savol uchun har doim 1-urinish (bonus yo'q, 1 marta javob).
+    Ochiq savol uchun: 1-urinishda 'Sniper Bonus' beriladi.
+    """
+    diff_mult = {"oson": 1.0, "orta": 1.2, "qiyin": 1.5}.get(difficulty, 1.0)
+    if q_type == "test":
+        return round(base_coins * diff_mult, 1)
+    # Ochiq savol - urinishga qarab bonus pasayadi
+    if attempt_num == 1:
+        bonus_mult = 2.0   # Sniper bonus - birinchi urinishda topdi
+    elif attempt_num == 2:
+        bonus_mult = 1.5
+    elif attempt_num <= 4:
+        bonus_mult = 1.2
+    else:
+        bonus_mult = 1.0
+    return round(base_coins * diff_mult * bonus_mult, 1)
+
+
+def calc_dynamic_penalty(base_coins, wrong_attempts):
+    """
+    Ochiq savolda noto'g'ri urinishlar ko'paygan sari jarima foizi oshadi.
+    1-xato: 10%, 2-xato: 20%, 3-xato: 35%, 4+: 50%
+    """
+    if wrong_attempts <= 1:
+        percent = 0.10
+    elif wrong_attempts == 2:
+        percent = 0.20
+    elif wrong_attempts == 3:
+        percent = 0.35
+    else:
+        percent = 0.50
+    return round(base_coins * percent, 1)
 
 
 db = Database()
