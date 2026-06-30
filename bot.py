@@ -10,7 +10,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
-from database import db
+from database import db, calc_sniper_bonus, calc_dynamic_penalty
 from config import BOT_TOKEN, ADMIN_IDS, QUESTION_TIME, PENALTY_PERCENT, TIMEOUT_PENALTY, STREAK_BONUSES, GROQ_API_KEY, GROQ_MODEL
 
 logging.basicConfig(level=logging.INFO)
@@ -66,7 +66,7 @@ MENU_TEXTS = {
     "📝 Taklif/Shikoyat","🎓 IELTS","⚔️ Duel","🏅 Liga",
     "🤖 AI Chat","👥 Guruhga ulash","⚙️ Admin Panel",
     "🛡 Yordamchi Admin Panel","🔙 Asosiy menyu","🚪 AI Chatdan chiqish",
-    "➕ Savol qo'shish","📋 Savollar ro'yxati","✏️ Savol tahrirlash",
+    "🟢 Live Savol tashlash","➕ Savol qo'shish","📋 Savollar ro'yxati","✏️ Savol tahrirlash",
     "🗑 Savol o'chirish","📂 Kategoriyalar","📊 Statistika",
     "👥 Foydalanuvchilar","💬 Takliflar","📢 Xabar yuborish",
     "⏳ Kutayotgan savollar","🛡 Yordamchi Adminlar","🗳 Saylov boshqaruvi",
@@ -79,6 +79,27 @@ def is_admin(uid): return uid in ADMIN_IDS
 def is_sub_admin(uid): return db.is_sub_admin(uid)
 def is_any_admin(uid): return is_admin(uid) or is_sub_admin(uid)
 
+async def send_long_text(chat_id, text, parse_mode="HTML", reply_markup=None):
+    """Telegram 4096 belgi limitidan oshgan matnni bo'lib yuboradi"""
+    LIMIT = 4000
+    if len(text) <= LIMIT:
+        return await bot.send_message(chat_id, text, parse_mode=parse_mode, reply_markup=reply_markup)
+    parts = []
+    while len(text) > LIMIT:
+        split_at = text.rfind("\n", 0, LIMIT)
+        if split_at == -1:
+            split_at = LIMIT
+        parts.append(text[:split_at])
+        text = text[split_at:]
+    parts.append(text)
+    last_msg = None
+    for i, part in enumerate(parts):
+        is_last = (i == len(parts) - 1)
+        last_msg = await bot.send_message(
+            chat_id, part, parse_mode=parse_mode,
+            reply_markup=reply_markup if is_last else None)
+    return last_msg
+
 class AdminStates(StatesGroup):
     waiting_question_type=State(); waiting_question_text=State(); waiting_options=State()
     waiting_correct_answer=State(); waiting_coin_reward=State(); waiting_difficulty=State()
@@ -89,6 +110,9 @@ class AdminStates(StatesGroup):
     sub_admin_select=State(); sub_admin_salary=State(); fb_reply_text=State()
     waiting_edit_id=State()
 
+class LiveQuestionStates(StatesGroup):
+    choosing_question=State(); waiting_live_time=State()
+
 class SubAdminStates(StatesGroup):
     waiting_question_type=State(); waiting_question_text=State(); waiting_options=State()
     waiting_correct_answer=State(); waiting_coin_reward=State(); waiting_difficulty=State()
@@ -98,7 +122,7 @@ class SubAdminStates(StatesGroup):
 class UserStates(StatesGroup):
     answering_open=State(); sending_feedback=State(); answering_premium=State()
     answering_ielts=State(); ai_chat=State(); ai_chat_confirm_debt=State()
-    duel_answering=State(); duel_waiting=State()
+    duel_answering=State(); duel_waiting=State(); answering_live=State()
 
 LEAGUE_ICONS = {
     "bronza": "🥉", "kumush": "🥈", "oltin": "🥇",
@@ -119,14 +143,15 @@ def main_menu(uid):
     return ReplyKeyboardMarkup(keyboard=b, resize_keyboard=True)
 
 def admin_menu():
-    b=[[KeyboardButton(text="➕ Savol qo'shish"),KeyboardButton(text="📋 Savollar ro'yxati")],
-       [KeyboardButton(text="✏️ Savol tahrirlash"),KeyboardButton(text="🗑 Savol o'chirish")],
-       [KeyboardButton(text="📂 Kategoriyalar"),KeyboardButton(text="📊 Statistika")],
-       [KeyboardButton(text="👥 Foydalanuvchilar"),KeyboardButton(text="💬 Takliflar")],
-       [KeyboardButton(text="📢 Xabar yuborish"),KeyboardButton(text="⏳ Kutayotgan savollar")],
-       [KeyboardButton(text="🛡 Yordamchi Adminlar"),KeyboardButton(text="🗳 Saylov boshqaruvi")],
-       [KeyboardButton(text="💰 Mukofot/Jarima"),KeyboardButton(text="📜 Hisobotlar")],
-       [KeyboardButton(text="👥 Guruhlar"),KeyboardButton(text="🔙 Asosiy menyu")]]
+    b=[[KeyboardButton(text="🟢 Live Savol tashlash"),KeyboardButton(text="➕ Savol qo'shish")],
+       [KeyboardButton(text="📋 Savollar ro'yxati"),KeyboardButton(text="✏️ Savol tahrirlash")],
+       [KeyboardButton(text="🗑 Savol o'chirish"),KeyboardButton(text="📂 Kategoriyalar")],
+       [KeyboardButton(text="📊 Statistika"),KeyboardButton(text="👥 Foydalanuvchilar")],
+       [KeyboardButton(text="💬 Takliflar"),KeyboardButton(text="📢 Xabar yuborish")],
+       [KeyboardButton(text="⏳ Kutayotgan savollar"),KeyboardButton(text="🛡 Yordamchi Adminlar")],
+       [KeyboardButton(text="🗳 Saylov boshqaruvi"),KeyboardButton(text="💰 Mukofot/Jarima")],
+       [KeyboardButton(text="📜 Hisobotlar"),KeyboardButton(text="👥 Guruhlar")],
+       [KeyboardButton(text="🔙 Asosiy menyu")]]
     return ReplyKeyboardMarkup(keyboard=b, resize_keyboard=True)
 
 def sub_admin_menu():
@@ -244,6 +269,8 @@ async def route_menu_text(message: types.Message, state: FSMContext):
         return await sub_admin_panel(message)
     elif text == "🔙 Asosiy menyu":
         return await back_to_main(message, state)
+    elif text == "🟢 Live Savol tashlash":
+        return await live_question_start(message, state)
     else:
         await message.answer("🏠 Asosiy menyu", reply_markup=main_menu(uid))
 
@@ -383,9 +410,23 @@ async def send_question(message, user_id, state, category, mode="all"):
             [InlineKeyboardButton(text=f"{chr(65+i)}. {opt[:64]}", callback_data=f"ans_{q_id}_{chr(65+i)}_{new_correct}")]
             for i,opt in enumerate(opts_list)])
         if image_id:
-            try: sent=await bot.send_photo(message.chat.id, photo=image_id, caption=header, parse_mode="HTML", reply_markup=kb)
-            except: sent=await message.answer(header, parse_mode="HTML", reply_markup=kb)
-        else: sent=await message.answer(header, parse_mode="HTML", reply_markup=kb)
+            if len(header) <= 1024:
+                try: sent=await bot.send_photo(message.chat.id, photo=image_id, caption=header, parse_mode="HTML", reply_markup=kb)
+                except Exception:
+                    try: await bot.send_photo(message.chat.id, photo=image_id)
+                    except Exception: pass
+                    sent=await message.answer(header, parse_mode="HTML", reply_markup=kb)
+            else:
+                # Caption juda uzun - rasm alohida, savol to'liq matn sifatida
+                try: await bot.send_photo(message.chat.id, photo=image_id)
+                except Exception: pass
+                sent=await message.answer(header, parse_mode="HTML", reply_markup=kb)
+        else:
+            if len(header) <= 4000:
+                sent=await message.answer(header, parse_mode="HTML", reply_markup=kb)
+            else:
+                await send_long_text(message.chat.id, header, parse_mode="HTML")
+                sent=await message.answer("👆 Javobni tanlang:", reply_markup=kb)
         await state.update_data(question_id=q_id, msg_id=sent.message_id, chat_id=message.chat.id)
         if user_id in active_timers: active_timers[user_id].cancel()
         active_timers[user_id]=asyncio.create_task(
@@ -395,9 +436,21 @@ async def send_question(message, user_id, state, category, mode="all"):
         await state.update_data(question_id=q_id, correct=correct, coins=coins, explanation=explanation)
         text=header+"\n\n✍️ <b>Javobingizni yozing:</b>"
         if image_id:
-            try: sent=await bot.send_photo(message.chat.id, photo=image_id, caption=text, parse_mode="HTML")
-            except: sent=await message.answer(text, parse_mode="HTML")
-        else: sent=await message.answer(text, parse_mode="HTML")
+            if len(text) <= 1024:
+                try: sent=await bot.send_photo(message.chat.id, photo=image_id, caption=text, parse_mode="HTML")
+                except Exception:
+                    try: await bot.send_photo(message.chat.id, photo=image_id)
+                    except Exception: pass
+                    sent=await message.answer(text, parse_mode="HTML")
+            else:
+                try: await bot.send_photo(message.chat.id, photo=image_id)
+                except Exception: pass
+                sent=await message.answer(text, parse_mode="HTML")
+        else:
+            if len(text) <= 4000:
+                sent=await message.answer(text, parse_mode="HTML")
+            else:
+                sent=await send_long_text(message.chat.id, text, parse_mode="HTML")
         await message.answer("👆 Javob yozing:", reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="⏭ O'tkazib yuborish", callback_data=f"skip_open_{q_id}")]]))
         if user_id in active_timers: active_timers[user_id].cancel()
@@ -580,10 +633,19 @@ async def send_premium_question(message,user_id,state,category):
     header=(f"⭐ <b>PREMIUM SAVOL</b>  🆔 #{q_id}\n📂 <b>{cat}</b>\n"
             f"💰 To'g'ri: <b>+{coins} coin</b>\n🔄 3 ta urinish  |  ⏭ O'tkazish  |  ❌ Jarima yo'q\n\n❓ <b>{q_text}</b>")
     skip_kb=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⏭ O'tkazib yuborish",callback_data=f"skip_premium_{q_id}_{category}")]])
+    full_text = header+"\n\n✍️ <b>Javob yozing:</b>"
     if image_id:
-        try: await bot.send_photo(message.chat.id,photo=image_id,caption=header+"\n\n✍️ <b>Javob yozing:</b>",parse_mode="HTML")
-        except: await message.answer(header+"\n\n✍️ <b>Javob yozing:</b>",parse_mode="HTML")
-    else: await message.answer(header+"\n\n✍️ <b>Javob yozing:</b>",parse_mode="HTML")
+        if len(full_text) <= 1024:
+            try: await bot.send_photo(message.chat.id,photo=image_id,caption=full_text,parse_mode="HTML")
+            except Exception:
+                try: await bot.send_photo(message.chat.id, photo=image_id)
+                except Exception: pass
+                await message.answer(full_text,parse_mode="HTML")
+        else:
+            try: await bot.send_photo(message.chat.id, photo=image_id)
+            except Exception: pass
+            await message.answer(full_text,parse_mode="HTML")
+    else: await message.answer(full_text,parse_mode="HTML")
     await message.answer("👆 Javob yozing yoki o'tkazing:",reply_markup=skip_kb)
 
 @dp.message(UserStates.answering_premium)
@@ -680,17 +742,34 @@ async def ielts_section(callback: types.CallbackQuery, state: FSMContext):
 
     # Audio fayl (listening uchun)
     if image_id and section=="listening":
-        try:
-            # Audio fayl bo'lsa
-            await bot.send_audio(callback.message.chat.id, audio=image_id, caption=header, parse_mode="HTML")
-        except:
-            try: await bot.send_voice(callback.message.chat.id, voice=image_id, caption=header, parse_mode="HTML")
-            except: await callback.message.answer(header, parse_mode="HTML")
+        if len(header) <= 1024:
+            try:
+                await bot.send_audio(callback.message.chat.id, audio=image_id, caption=header, parse_mode="HTML")
+            except Exception:
+                try: await bot.send_voice(callback.message.chat.id, voice=image_id, caption=header, parse_mode="HTML")
+                except Exception:
+                    try: await bot.send_audio(callback.message.chat.id, audio=image_id)
+                    except Exception: pass
+                    await send_long_text(callback.message.chat.id, header, parse_mode="HTML")
+        else:
+            try: await bot.send_audio(callback.message.chat.id, audio=image_id)
+            except Exception:
+                try: await bot.send_voice(callback.message.chat.id, voice=image_id)
+                except Exception: pass
+            await send_long_text(callback.message.chat.id, header, parse_mode="HTML")
     elif image_id:
-        try: await bot.send_photo(callback.message.chat.id,photo=image_id,caption=header,parse_mode="HTML")
-        except: await callback.message.answer(header,parse_mode="HTML")
+        if len(header) <= 1024:
+            try: await bot.send_photo(callback.message.chat.id,photo=image_id,caption=header,parse_mode="HTML")
+            except Exception:
+                try: await bot.send_photo(callback.message.chat.id, photo=image_id)
+                except Exception: pass
+                await send_long_text(callback.message.chat.id, header, parse_mode="HTML")
+        else:
+            try: await bot.send_photo(callback.message.chat.id, photo=image_id)
+            except Exception: pass
+            await send_long_text(callback.message.chat.id, header, parse_mode="HTML")
     else:
-        await callback.message.answer(header,parse_mode="HTML")
+        await send_long_text(callback.message.chat.id, header, parse_mode="HTML")
 
     await callback.message.answer("👆 Javob yuboring:",reply_markup=skip_kb)
     await callback.answer()
@@ -2344,6 +2423,361 @@ async def groq_auto_question():
 
         except Exception as e:
             logging.error(f"Groq auto-question error: {e}")
+
+# ═══════════════ LIVE SAVOL TIZIMI (faqat admin) ═══════════════
+live_timers = {}  # live_id -> asyncio.Task
+
+@dp.message(F.text=="🟢 Live Savol tashlash")
+async def live_question_start(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Bu bo'lim faqat adminlar uchun."); return
+    await state.clear()
+
+    open_live = db.get_open_live_question()
+    if open_live:
+        await message.answer(
+            "⏳ Hozir aktiv Live savol bor!\n"
+            "Avval uni to'xtating yoki tugashini kuting.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text="🛑 Joriy savolni to'xtatish", callback_data=f"live_stop_{open_live[0]}")]]))
+        return
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📝 Test savol", callback_data="live_type_test")],
+        [InlineKeyboardButton(text="✍️ Ochiq savol", callback_data="live_type_open")],
+        [InlineKeyboardButton(text="❌ Bekor", callback_data="live_cancel")]])
+    await message.answer(
+        "🟢 <b>Live Savol tashlash</b>\n\n"
+        "Bu savol barcha foydalanuvchilarga bir vaqtda boradi.\n"
+        "Savol turini tanlang:",
+        parse_mode="HTML", reply_markup=kb)
+
+@dp.callback_query(F.data=="live_cancel")
+async def live_cancel(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    await callback.message.edit_text("❌ Bekor qilindi.")
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("live_type_"))
+async def live_type_chosen(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return
+    q_type = callback.data[10:]  # test yoki open
+    cats = db.get_categories()
+    buttons = []
+    row = []
+    for cat in cats:
+        row.append(InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"live_cat_{q_type}_{cat}"))
+        if len(row) == 2:
+            buttons.append(row); row = []
+    if row: buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="🌐 Barchasi", callback_data=f"live_cat_{q_type}_Barchasi")])
+    buttons.append([InlineKeyboardButton(text="❌ Bekor", callback_data="live_cancel")])
+    await callback.message.edit_text("📂 Kategoriyani tanlang:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("live_cat_"))
+async def live_cat_chosen(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return
+    parts = callback.data.split("_", 3)
+    q_type, category = parts[2], parts[3]
+
+    q = db.get_random_question(0, category if category != "Barchasi" else None, q_type=q_type)
+    if not q:
+        await callback.answer("😔 Bu kategoriyada mos savol yo'q!", show_alert=True); return
+
+    q_id, q_text, q_t, options, correct, coins, cat, diff, explanation, image_id, tl = q
+    await state.update_data(live_q_id=q_id, live_q_type=q_t, live_correct=correct, live_coins=coins)
+    await state.set_state(LiveQuestionStates.waiting_live_time)
+
+    short = q_text[:150] + "..." if len(q_text) > 150 else q_text
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⏱ 30s", callback_data="live_time_30"),
+         InlineKeyboardButton(text="⏱ 60s", callback_data="live_time_60"),
+         InlineKeyboardButton(text="⏱ 120s", callback_data="live_time_120")],
+        [InlineKeyboardButton(text="✍️ Boshqa vaqt kiritish", callback_data="live_time_custom")],
+        [InlineKeyboardButton(text="❌ Bekor", callback_data="live_cancel")]])
+    await callback.message.edit_text(
+        f"❓ <b>Tanlangan savol:</b>\n{short}\n\n💰 {coins} coin\n\n"
+        f"⏰ Savol uchun vaqtni tanlang:",
+        parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("live_time_"))
+async def live_time_chosen(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return
+    val = callback.data[10:]
+    if val == "custom":
+        await callback.message.edit_text("⏰ Vaqtni soniyada kiriting (masalan: 90):")
+        return
+    time_limit = int(val)
+    await start_live_question(callback.message, state, time_limit, callback.from_user.id)
+    await callback.answer()
+
+@dp.message(LiveQuestionStates.waiting_live_time)
+async def live_time_custom(message: types.Message, state: FSMContext):
+    if not message.text or not message.text.strip().isdigit():
+        await message.answer("⚠️ Faqat raqam kiriting (soniyada)!"); return
+    time_limit = int(message.text.strip())
+    if time_limit < 5 or time_limit > 600:
+        await message.answer("⚠️ Vaqt 5 dan 600 soniyagacha bo'lishi kerak!"); return
+    await start_live_question(message, state, time_limit, message.from_user.id)
+
+async def start_live_question(message_obj, state: FSMContext, time_limit: int, admin_id: int):
+    data = await state.get_data()
+    q_id = data.get("live_q_id")
+    q_type = data.get("live_q_type")
+    coins = data.get("live_coins")
+    q = db.get_question_by_id(q_id)
+    await state.clear()
+    if not q:
+        await message_obj.answer("❌ Savol topilmadi!"); return
+
+    q_id, q_text, q_t, options, correct, coins, cat, diff, explanation, image_id, tl = q
+    diff_icon = DIFFICULTY_ICONS.get(diff, "🟡")
+
+    if q_t == "test":
+        shuffled_opts, new_correct = shuffle_options(options, correct)
+        live_id = db.create_live_question(q_id, "test", new_correct, coins, time_limit, admin_id)
+        opts_list = shuffled_opts.split("|")
+        lines = [f"{chr(65+i)}. {opt}" for i, opt in enumerate(opts_list)]
+        opts_text = "\n".join(lines)
+        header = (
+            f"🟢 <b>LIVE SAVOL!</b>  {diff_icon}  📂 {cat}\n"
+            f"💰 To'g'ri javob: <b>+{coins} coin</b>  ⏰ <b>{time_limit}s</b>\n\n"
+            f"❓ <b>{q_text}</b>\n\n{opts_text}\n\n"
+            f"✍️ A / B / C / D deb yozing!\n"
+            f"⚠️ Har kim faqat 1 marta javob bera oladi!"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🛑 Savolni to'xtatish (admin)", callback_data=f"live_stop_{live_id}")]])
+    else:
+        live_id = db.create_live_question(q_id, "open", correct, coins, time_limit, admin_id)
+        header = (
+            f"🟢 <b>LIVE SAVOL!</b>  {diff_icon}  📂 {cat}\n"
+            f"💰 To'g'ri javob: <b>+{coins} coin</b>  ⏰ <b>{time_limit}s</b>\n\n"
+            f"❓ <b>{q_text}</b>\n\n"
+            f"✍️ Javobni yozing — kim birinchi topsa shu g'olib!\n"
+            f"🎯 1-urinishda topsangiz qo'shimcha <b>Sniper Bonus</b> olasiz!\n"
+            f"⚠️ Noto'g'ri urinishlar safiga qarab jarima oshib boradi."
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🛑 Savolni to'xtatish (admin)", callback_data=f"live_stop_{live_id}")]])
+
+    all_users = db.get_all_user_ids()
+    sent_count = 0
+    for uid in all_users:
+        try:
+            await bot.send_message(uid, header, parse_mode="HTML", reply_markup=kb if uid == admin_id else None)
+            sent_count += 1
+        except Exception:
+            pass
+        await asyncio.sleep(0.03)
+
+    await message_obj.answer(
+        f"✅ Live savol {sent_count} ta foydalanuvchiga yuborildi!\n"
+        f"⏰ Vaqt: {time_limit}s",
+        reply_markup=admin_menu())
+
+    # Timer
+    if live_id in live_timers:
+        live_timers[live_id].cancel()
+    live_timers[live_id] = asyncio.create_task(live_question_timeout(live_id, time_limit))
+
+async def live_question_timeout(live_id, time_limit):
+    await asyncio.sleep(time_limit)
+    live = db.get_live_question(live_id)
+    if not live or live[6] != 'open':
+        return
+    await finish_live_question(live_id, reason="timeout")
+
+@dp.callback_query(F.data.startswith("live_stop_"))
+async def live_stop_cb(callback: types.CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        await callback.answer("Ruxsat yo'q!", show_alert=True); return
+    live_id = int(callback.data[10:])
+    live = db.get_live_question(live_id)
+    if not live or live[6] != 'open':
+        await callback.answer("Bu savol allaqachon yopilgan!", show_alert=True); return
+    if live_id in live_timers:
+        live_timers[live_id].cancel()
+    await finish_live_question(live_id, reason="stopped")
+    try: await callback.message.edit_reply_markup(reply_markup=None)
+    except Exception: pass
+    await callback.answer("🛑 Savol to'xtatildi!", show_alert=True)
+
+async def finish_live_question(live_id, reason="timeout"):
+    live = db.get_live_question(live_id)
+    if not live:
+        return
+    _, question_id, q_type, correct, coins, time_limit, status, winner_id, created_by, created_at, closed_at = live
+    if status != 'open':
+        return
+
+    q = db.get_question_by_id(question_id)
+    diff = q[7] if q else "orta"
+
+    if q_type == "test":
+        # Test: barcha to'g'ri javob berganlar coin oladi, noto'g'ri - jarima
+        cur = db.get_conn().cursor()
+        cur.execute("SELECT user_id, is_correct FROM live_attempts WHERE live_id=%s", (live_id,))
+        rows = cur.fetchall()
+        correct_users = []
+        wrong_users = []
+        for uid, is_correct in rows:
+            if is_correct:
+                correct_users.append(uid)
+            else:
+                wrong_users.append(uid)
+        for uid in correct_users:
+            earned = calc_sniper_bonus(coins, 1, "test", diff)
+            db.add_coins(uid, earned)
+            db.add_league_points(uid, 3)
+        for uid in wrong_users:
+            penalty = calc_dynamic_penalty(coins, 1)
+            db.add_coins(uid, -penalty)
+        db.close_live_question(live_id, winner_id=correct_users[0] if correct_users else None)
+
+        result_text = (
+            f"🏁 <b>LIVE SAVOL YAKUNLANDI!</b> ({'vaqt tugadi' if reason=='timeout' else 'admin to\u2018xtatdi'})\n\n"
+            f"✅ To'g'ri topganlar: <b>{len(correct_users)} kishi</b>\n"
+            f"❌ Noto'g'ri javob berganlar: <b>{len(wrong_users)} kishi</b>\n"
+            f"💰 To'g'ri javob: +{coins} coin\n"
+        )
+        all_users = db.get_all_user_ids()
+        for uid in all_users:
+            try:
+                personal = ""
+                if uid in correct_users:
+                    personal = f"\n\n🎉 Siz to'g'ri javob berdingiz! +{round(calc_sniper_bonus(coins,1,'test',diff),1)} coin"
+                elif uid in wrong_users:
+                    personal = f"\n\n❌ Siz noto'g'ri javob berdingiz. -{round(calc_dynamic_penalty(coins,1),1)} coin"
+                await bot.send_message(uid, result_text + personal, parse_mode="HTML")
+            except Exception:
+                pass
+            await asyncio.sleep(0.02)
+    else:
+        # Ochiq savol: kim to'g'ri topgan bo'lsa (birinchi g'olib), qolganlarga statistik xabar
+        participants = db.get_live_participants(live_id)
+        winner = None
+        winner_attempt = None
+        for uid, fname, uname, attempts, got_correct, correct_at in participants:
+            if got_correct:
+                winner = uid
+                winner_attempt = correct_at
+                break
+
+        if winner:
+            earned = calc_sniper_bonus(coins, winner_attempt or 1, "open", diff)
+            db.add_coins(winner, earned)
+            db.add_league_points(winner, 5)
+            db.close_live_question(live_id, winner_id=winner)
+        else:
+            db.close_live_question(live_id, winner_id=None)
+
+        # Boshqa qatnashganlarga (g'olib bo'lmagan, lekin urinib ko'rganlarga) dinamik jarima
+        for uid, fname, uname, attempts, got_correct, correct_at in participants:
+            if uid == winner:
+                continue
+            cur = db.get_conn().cursor()
+            cur.execute(
+                "SELECT COUNT(*) FROM live_attempts WHERE live_id=%s AND user_id=%s AND is_correct=0",
+                (live_id, uid))
+            wrong_count = cur.fetchone()[0]
+            if wrong_count > 0:
+                penalty = calc_dynamic_penalty(coins, wrong_count)
+                db.add_coins(uid, -penalty)
+
+        stats_lines = []
+        for uid, fname, uname, attempts, got_correct, correct_at in participants:
+            name = fname or uname or str(uid)
+            if uid == winner:
+                stats_lines.append(f"🏆 <b>{name}</b> — {correct_at}-urinishda topdi! G'OLIB")
+            else:
+                stats_lines.append(f"❌ {name} — {attempts} marta urindi, topa olmadi")
+        stats_text = "\n".join(stats_lines) if stats_lines else "Hech kim qatnashmadi."
+
+        result_text = (
+            f"🏁 <b>LIVE SAVOL YAKUNLANDI!</b> ({'vaqt tugadi' if reason=='timeout' else 'admin to\u2018xtatdi'})\n\n"
+            f"📊 <b>Statistika:</b>\n{stats_text}\n"
+        )
+        if winner:
+            wname_row = [p for p in participants if p[0] == winner]
+            wname = wname_row[0][1] or wname_row[0][2] or str(winner) if wname_row else str(winner)
+            result_text += f"\n💰 G'olib <b>{wname}</b>: +{round(earned,1)} coin"
+
+        all_users = db.get_all_user_ids()
+        for uid in all_users:
+            try:
+                await send_long_text(uid, result_text, parse_mode="HTML")
+            except Exception:
+                pass
+            await asyncio.sleep(0.02)
+
+    live_timers.pop(live_id, None)
+
+@dp.message(UserStates.answering_live)
+async def handle_live_open_answer(message: types.Message, state: FSMContext):
+    # Bu state ishlatilmaydi - live javoblar pastdagi global handler orqali keladi
+    pass
+
+# Live savol uchun javob qabul qilish - global matn handler (shaxsiy chatda)
+@dp.message(F.chat.type == "private")
+async def handle_private_live_answer(message: types.Message, state: FSMContext):
+    """Agar foydalanuvchi biror state'da bo'lmasa va aktiv live savol bo'lsa, javobini tekshiradi"""
+    current_state = await state.get_state()
+    if current_state is not None:
+        return  # boshqa handler band qiladi
+    if not message.text or message.text.startswith("/"):
+        return
+    if message.text in MENU_TEXTS:
+        return
+
+    live = db.get_open_live_question()
+    if not live:
+        return
+
+    live_id, question_id, q_type, correct, coins, time_limit, status, winner_id, created_by, created_at, closed_at = live
+    uid = message.from_user.id
+
+    user = db.get_user(uid)
+    if not user:
+        return
+
+    if q_type == "test":
+        if db.has_live_attempted(live_id, uid):
+            await message.reply("⚠️ Siz allaqachon javob bergansiz! Test savolda faqat 1 marta javob mumkin.")
+            return
+        ans = message.text.strip().upper()
+        if ans not in ("A", "B", "C", "D"):
+            return
+        is_correct = (ans == correct.upper())
+        db.add_live_attempt(live_id, uid, ans, is_correct)
+        if is_correct:
+            await message.reply("✅ Javobingiz qabul qilindi! Natija savol yakunlanganda e'lon qilinadi.")
+        else:
+            await message.reply("📝 Javobingiz qabul qilindi.")
+    else:
+        # Ochiq savol - istalgancha urinish
+        if db.has_live_correct(live_id, uid):
+            await message.reply("✅ Siz allaqachon to'g'ri javob topgansiz!")
+            return
+        is_correct = check_answer(message.text, correct)
+        attempt_num = db.add_live_attempt(live_id, uid, message.text, is_correct)
+        if is_correct:
+            await message.reply(
+                f"🎯 <b>TO'G'RI!</b> Siz {attempt_num}-urinishda topdingiz!\n"
+                f"Natija va coin savol yakunlanganda e'lon qilinadi.",
+                parse_mode="HTML")
+            # Birinchi to'g'ri topgan bo'lsa - darhol yakunlash
+            participants = db.get_live_participants(live_id)
+            already_winner = any(p[4] for p in participants if p[0] != uid)
+            if not already_winner:
+                if live_id in live_timers:
+                    live_timers[live_id].cancel()
+                await finish_live_question(live_id, reason="answered")
+        else:
+            await message.reply(f"❌ Noto'g'ri. Yana urinib ko'ring! (urinish #{attempt_num})")
 
 async def main():
     # Bot buyruqlari ro'yxatini o'rnatish (/ bosilganda chiqadi)
