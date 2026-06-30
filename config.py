@@ -13,6 +13,5 @@ STREAK_BONUSES = {
     10: 3.0,
 }
 
-# Groq API (Gemini olib tashlandi)
-GROQ_API_KEY = "xai-KQjuCy3m4qIUcWBPImP6wjwyuS0JBWwvW6oRje9mEH0JCE5q7475dDXKH7E4eIURytYYshQAHKctVVIb"
-GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_API_KEY = "xai-DByfxb4i09wt8enzWEao0lnRJ78qBdBmUYXSu6vFCfJVE0ZYvab9EQTvwdTXgKXaOI96PUmhsIRASQiX"
+GROQ_MODEL   = "grok-2-latest"
