@@ -61,6 +61,20 @@ def get_rank_sticker(r):
     elif r<=10: return STICKER_TOP10
     return None
 
+MENU_TEXTS = {
+    "🎯 Savol olish","🏆 Reyting","👤 Profilim","ℹ️ Yordam",
+    "📝 Taklif/Shikoyat","🎓 IELTS","⚔️ Duel","🏅 Liga",
+    "🤖 AI Chat","👥 Guruhga ulash","⚙️ Admin Panel",
+    "🛡 Yordamchi Admin Panel","🔙 Asosiy menyu","🚪 AI Chatdan chiqish",
+    "➕ Savol qo'shish","📋 Savollar ro'yxati","✏️ Savol tahrirlash",
+    "🗑 Savol o'chirish","📂 Kategoriyalar","📊 Statistika",
+    "👥 Foydalanuvchilar","💬 Takliflar","📢 Xabar yuborish",
+    "⏳ Kutayotgan savollar","🛡 Yordamchi Adminlar","🗳 Saylov boshqaruvi",
+    "💰 Mukofot/Jarima","📜 Hisobotlar","👥 Guruhlar",
+    "➕ Savol yuborish","📝 Hisobot yozish","💬 Takliflar o'qish",
+    "💬 Javob yozish","📢 Xabar tarqatish","💰 Moashim",
+}
+
 def is_admin(uid): return uid in ADMIN_IDS
 def is_sub_admin(uid): return db.is_sub_admin(uid)
 def is_any_admin(uid): return is_admin(uid) or is_sub_admin(uid)
@@ -147,21 +161,20 @@ def check_answer(user_ans, correct_ans):
     return uc in [a.strip().lower() for a in correct_ans.split("\n") if a.strip()]
 
 
-GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "mixtral-8x7b-32768",
-    "gemma2-9b-it",
+GROK_MODELS = [
+    "grok-2-latest",
+    "grok-2",
+    "grok-beta",
 ]
 
 async def groq_request(messages, max_tokens=1000):
-    models_to_try = [GROQ_MODEL] + [m for m in GROQ_MODELS if m != GROQ_MODEL]
+    models_to_try = [GROQ_MODEL] + [m for m in GROK_MODELS if m != GROQ_MODEL]
     last_error = ""
     for model in models_to_try:
         try:
             async with aiohttp.ClientSession() as s:
                 async with s.post(
-                    "https://api.groq.com/openai/v1/chat/completions",
+                    "https://api.x.ai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
                     json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
                     timeout=aiohttp.ClientTimeout(total=30)
@@ -169,16 +182,16 @@ async def groq_request(messages, max_tokens=1000):
                     d = await r.json()
                     if "error" in d:
                         last_error = str(d["error"])
-                        logging.warning(f"Groq {model} xato: {last_error}")
+                        logging.warning(f"Grok {model} xato: {last_error}")
                         continue
                     if "choices" in d and d["choices"]:
                         return d["choices"][0]["message"]["content"]
         except asyncio.TimeoutError:
-            logging.warning(f"Groq {model} timeout")
+            logging.warning(f"Grok {model} timeout")
         except Exception as e:
             last_error = str(e)
-            logging.warning(f"Groq {model} exception: {e}")
-    logging.error(f"Barcha Groq modellari ishlamadi. Xato: {last_error}")
+            logging.warning(f"Grok {model} exception: {e}")
+    logging.error(f"Barcha Grok modellari ishlamadi. Xato: {last_error}")
     return None
 
 async def ai_req(prompt):
@@ -200,6 +213,39 @@ def parse_band(text):
                 if v<=9: return v
             except: pass
     return None
+
+async def route_menu_text(message: types.Message, state: FSMContext):
+    """State ichida turib menyu tugmasi bosilsa, mos funksiyani to'g'ridan-to'g'ri chaqiradi"""
+    text = message.text
+    uid = message.from_user.id
+    if text == "🎯 Savol olish":
+        return await get_question_start(message, state)
+    elif text == "🏆 Reyting":
+        return await show_leaderboard(message)
+    elif text == "👤 Profilim":
+        return await show_profile(message)
+    elif text == "ℹ️ Yordam":
+        return await show_help(message)
+    elif text == "📝 Taklif/Shikoyat":
+        return await feedback_start(message, state)
+    elif text == "🎓 IELTS":
+        return await ielts_menu(message)
+    elif text == "⚔️ Duel":
+        return await duel_menu(message, state)
+    elif text == "🏅 Liga":
+        return await liga_menu(message, state)
+    elif text == "🤖 AI Chat":
+        return await ai_chat_start(message, state)
+    elif text == "👥 Guruhga ulash":
+        return await user_add_to_group(message)
+    elif text == "⚙️ Admin Panel":
+        return await admin_panel(message)
+    elif text == "🛡 Yordamchi Admin Panel":
+        return await sub_admin_panel(message)
+    elif text == "🔙 Asosiy menyu":
+        return await back_to_main(message, state)
+    else:
+        await message.answer("🏠 Asosiy menyu", reply_markup=main_menu(uid))
 
 # ═══════════════ START ═══════════════
 @dp.message(Command("start"))
@@ -440,6 +486,9 @@ async def handle_test_answer(callback: types.CallbackQuery, state: FSMContext):
 
 @dp.message(UserStates.answering_open)
 async def handle_open_answer(message: types.Message, state: FSMContext):
+    if message.text in MENU_TEXTS:
+        await state.clear()
+        return await route_menu_text(message, state)
     data=await state.get_data()
     q_id,correct,coins=data["question_id"],data["correct"],data["coins"]
     explanation=data.get("explanation",""); cat=data.get("category","Barchasi"); mode=data.get("qmode","all")
@@ -539,6 +588,9 @@ async def send_premium_question(message,user_id,state,category):
 
 @dp.message(UserStates.answering_premium)
 async def handle_premium(message: types.Message, state: FSMContext):
+    if message.text in MENU_TEXTS:
+        await state.clear()
+        return await route_menu_text(message, state)
     data=await state.get_data()
     q_id,correct,coins=data["question_id"],data["correct"],data["coins"]
     explanation=data.get("explanation",""); cat=data.get("category","Barchasi"); attempts=data.get("attempts",0)
@@ -681,6 +733,9 @@ def is_lazy_answer(text):
 
 @dp.message(UserStates.answering_ielts)
 async def handle_ielts(message: types.Message, state: FSMContext):
+    if message.text in MENU_TEXTS:
+        await state.clear()
+        return await route_menu_text(message, state)
     data=await state.get_data()
     q_id,coins,section=data["question_id"],data["coins"],data["section"]
     uid=message.from_user.id
@@ -866,6 +921,9 @@ async def ai_chat_exit(message: types.Message, state: FSMContext):
 @dp.message(UserStates.ai_chat)
 async def handle_ai_chat(message: types.Message, state: FSMContext):
     if not message.text: return
+    if message.text in MENU_TEXTS and message.text != "🚪 AI Chatdan chiqish":
+        await state.clear()
+        return await route_menu_text(message, state)
     uid=message.from_user.id; ut=message.text.strip()
     for word in ILLEGAL_WORDS:
         if word in ut.lower():
@@ -1000,6 +1058,9 @@ async def feedback_start(message: types.Message, state: FSMContext):
 
 @dp.message(UserStates.sending_feedback)
 async def receive_feedback(message: types.Message, state: FSMContext):
+    if message.text in MENU_TEXTS:
+        await state.clear()
+        return await route_menu_text(message, state)
     user=message.from_user
     db.save_feedback(user.id, user.first_name or "", user.username or "", message.text)
     await state.clear()
@@ -2638,7 +2699,8 @@ async def grp_leave(callback: types.CallbackQuery):
 
 # ═══════════════ DUEL TIZIMI ═══════════════
 @dp.message(F.text=="⚔️ Duel")
-async def duel_menu(message: types.Message):
+async def duel_menu(message: types.Message, state: FSMContext):
+    await state.clear()
     uid = message.from_user.id
     user = db.get_user(uid)
     if not user:
@@ -2913,7 +2975,8 @@ async def check_duel_finish(duel_id):
 
 # ═══════════════ LIGA TIZIMI ═══════════════
 @dp.message(F.text=="🏅 Liga")
-async def liga_menu(message: types.Message):
+async def liga_menu(message: types.Message, state: FSMContext):
+    await state.clear()
     uid = message.from_user.id
     league_data = db.get_or_create_league(uid)
     if not league_data:
