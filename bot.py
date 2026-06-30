@@ -406,9 +406,13 @@ async def send_question(message, user_id, state, category, mode="all"):
     if q_type=="test":
         shuffled_opts,new_correct=shuffle_options(options, correct)
         opts_list=shuffled_opts.split("|")
+        # Variantlarni savol matni ostida to'liq ko'rsatish (tugma 64 belgi cheklovidan qochish uchun)
+        opts_full_text = "\n".join([f"{chr(65+i)}. {opt}" for i, opt in enumerate(opts_list)])
+        header = header + "\n\n" + opts_full_text
         kb=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"{chr(65+i)}. {opt[:64]}", callback_data=f"ans_{q_id}_{chr(65+i)}_{new_correct}")]
-            for i,opt in enumerate(opts_list)])
+            [InlineKeyboardButton(text=f"{chr(65+i)}", callback_data=f"ans_{q_id}_{chr(65+i)}_{new_correct}")
+             for i in range(len(opts_list))]
+        ])
         if image_id:
             if len(header) <= 1024:
                 try: sent=await bot.send_photo(message.chat.id, photo=image_id, caption=header, parse_mode="HTML", reply_markup=kb)
@@ -2795,9 +2799,6 @@ async def main():
     asyncio.create_task(groq_auto_question())
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
-if __name__=="__main__":
-    asyncio.run(main())
-
 # ═══════════════ GURUH HANDLERLARI ═══════════════
 
 # Bot guruhga qo'shilganda
@@ -3315,14 +3316,14 @@ async def send_duel_question(user_id, duel_id):
     shuffled_opts, new_correct = shuffle_options(options, correct)
     opts_list = shuffled_opts.split("|")
 
+    opts_full_text = "\n".join([f"{chr(65+i)}. {opt}" for i, opt in enumerate(opts_list)])
     header = (f"⚔️ <b>DUEL</b>  {diff_icon}  {answered+1}/{len(q_ids)}\n\n"
-              f"❓ <b>{q_text}</b>")
+              f"❓ <b>{q_text}</b>\n\n{opts_full_text}")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(
-            text=f"{chr(65+i)}. {opt[:50]}",
-            callback_data=f"duelans_{duel_id}_{q_id}_{chr(65+i)}_{new_correct}")]
-        for i, opt in enumerate(opts_list)])
+        [InlineKeyboardButton(text=f"{chr(65+i)}", callback_data=f"duelans_{duel_id}_{q_id}_{chr(65+i)}_{new_correct}")
+         for i in range(len(opts_list))]
+    ])
 
     try:
         await bot.send_message(user_id, header, parse_mode="HTML", reply_markup=kb)
@@ -3509,3 +3510,6 @@ async def liga_back(callback: types.CallbackQuery):
             [InlineKeyboardButton(text="🌍 Umumiy reyting", callback_data="liga_top_all")],
             [InlineKeyboardButton(text="📅 Haftalik reyting", callback_data="liga_weekly")]]))
     await callback.answer()
+
+if __name__ == "__main__":
+    asyncio.run(main())
