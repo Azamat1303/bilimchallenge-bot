@@ -13,5 +13,6 @@ STREAK_BONUSES = {
     10: 3.0,
 }
 
-GROQ_API_KEY = "xai-DByfxb4i09wt8enzWEao0lnRJ78qBdBmUYXSu6vFCfJVE0ZYvab9EQTvwdTXgKXaOI96PUmhsIRASQiX"
-GROQ_MODEL   = "grok-2-latest"
+# Groq API (Llama modellari)
+GROQ_API_KEY = "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"
+GROQ_MODEL   = "llama-3.3-70b-versatile"
