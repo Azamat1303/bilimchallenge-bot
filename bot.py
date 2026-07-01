@@ -70,7 +70,7 @@ MENU_TEXTS = {
     "🗑 Savol o'chirish","📂 Kategoriyalar","📊 Statistika",
     "👥 Foydalanuvchilar","💬 Takliflar","📢 Xabar yuborish",
     "⏳ Kutayotgan savollar","🛡 Yordamchi Adminlar","🗳 Saylov boshqaruvi",
-    "💰 Mukofot/Jarima","📜 Hisobotlar","👥 Guruhlar",
+    "💰 Mukofot/Jarima","📜 Hisobotlar","👥 Guruhlar","📥 Savollarni import qilish",
     "➕ Savol yuborish","📝 Hisobot yozish","💬 Takliflar o'qish",
     "💬 Javob yozish","📢 Xabar tarqatish","💰 Moashim",
 }
@@ -109,6 +109,7 @@ class AdminStates(StatesGroup):
     payment_amount=State(); payment_note=State(); payment_target=State()
     sub_admin_select=State(); sub_admin_salary=State(); fb_reply_text=State()
     waiting_edit_id=State()
+    waiting_bulk_questions=State(); waiting_bulk_category=State()
 
 class LiveQuestionStates(StatesGroup):
     choosing_question=State(); waiting_live_time=State()
@@ -151,7 +152,7 @@ def admin_menu():
        [KeyboardButton(text="⏳ Kutayotgan savollar"),KeyboardButton(text="🛡 Yordamchi Adminlar")],
        [KeyboardButton(text="🗳 Saylov boshqaruvi"),KeyboardButton(text="💰 Mukofot/Jarima")],
        [KeyboardButton(text="📜 Hisobotlar"),KeyboardButton(text="👥 Guruhlar")],
-       [KeyboardButton(text="🔙 Asosiy menyu")]]
+       [KeyboardButton(text="📥 Savollarni import qilish"),KeyboardButton(text="🔙 Asosiy menyu")]]
     return ReplyKeyboardMarkup(keyboard=b, resize_keyboard=True)
 
 def sub_admin_menu():
@@ -186,20 +187,20 @@ def check_answer(user_ans, correct_ans):
     return uc in [a.strip().lower() for a in correct_ans.split("\n") if a.strip()]
 
 
-GROK_MODELS = [
-    "grok-2-latest",
-    "grok-2",
-    "grok-beta",
+GROQ_MODELS = [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-70b-versatile",
+    "llama3-70b-8192",
 ]
 
 async def groq_request(messages, max_tokens=1000):
-    models_to_try = [GROQ_MODEL] + [m for m in GROK_MODELS if m != GROQ_MODEL]
+    models_to_try = [GROQ_MODEL] + [m for m in GROQ_MODELS if m != GROQ_MODEL]
     last_error = ""
     for model in models_to_try:
         try:
             async with aiohttp.ClientSession() as s:
                 async with s.post(
-                    "https://api.x.ai/v1/chat/completions",
+                    "https://api.groq.com/openai/v1/chat/completions",
                     headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
                     json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
                     timeout=aiohttp.ClientTimeout(total=30)
@@ -207,16 +208,16 @@ async def groq_request(messages, max_tokens=1000):
                     d = await r.json()
                     if "error" in d:
                         last_error = str(d["error"])
-                        logging.warning(f"Grok {model} xato: {last_error}")
+                        logging.warning(f"Groq {model} xato: {last_error}")
                         continue
                     if "choices" in d and d["choices"]:
                         return d["choices"][0]["message"]["content"]
         except asyncio.TimeoutError:
-            logging.warning(f"Grok {model} timeout")
+            logging.warning(f"Groq {model} timeout")
         except Exception as e:
             last_error = str(e)
-            logging.warning(f"Grok {model} exception: {e}")
-    logging.error(f"Barcha Grok modellari ishlamadi. Xato: {last_error}")
+            logging.warning(f"Groq {model} exception: {e}")
+    logging.error(f"Barcha Groq modellari ishlamadi. Xato: {last_error}")
     return None
 
 async def ai_req(prompt):
@@ -2782,6 +2783,141 @@ async def handle_private_live_answer(message: types.Message, state: FSMContext):
                 await finish_live_question(live_id, reason="answered")
         else:
             await message.reply(f"❌ Noto'g'ri. Yana urinib ko'ring! (urinish #{attempt_num})")
+
+# ═══════════════ SAVOLLARNI MATNDAN IMPORT QILISH ═══════════════
+import re as _re
+
+def parse_bulk_questions(text):
+    """Matndan savollarni avtomatik ajratib oladi"""
+    questions = []
+    blocks = _re.split(r'(?=\d+[-–.]\s*savol)', text, flags=_re.IGNORECASE)
+    for block in blocks:
+        block = block.strip()
+        if not block or len(block) < 20:
+            continue
+        # Savol turi
+        if _re.search(r'variant|test', block, _re.IGNORECASE) or _re.search(r'[A-E]\)\s', block):
+            q_type = "test"
+        else:
+            q_type = "open"
+        # Savol matni
+        m = _re.search(
+            r'(?:\d+[-–.]\s*savol[^:]*:\s*)?(.+?)(?=\s*A\)\s|To[\'ʻ]g[\'ʻ]ri\s*javob|Tavsif\s*:|$)',
+            block, _re.IGNORECASE | _re.DOTALL)
+        q_text = ""
+        if m:
+            q_text = _re.sub(r'\s+', ' ', m.group(1)).strip()
+        if not q_text or len(q_text) < 10:
+            continue
+        # Variantlar
+        options = []
+        for letter, opt_text in _re.findall(r'([A-E])\)\s*(.+?)(?=[A-E]\)|To[\'ʻ]g[\'ʻ]ri|Tavsif|$)', block, _re.DOTALL):
+            options.append(_re.sub(r'\s+', ' ', opt_text).strip())
+        # To'g'ri javob
+        cm = _re.search(r'To[\'ʻ]g[\'ʻ]ri\s*javob[:\s]+([^\n\s]+)', block, _re.IGNORECASE)
+        correct = cm.group(1).strip() if cm else ""
+        # Tavsif
+        tm = _re.search(r'Tavsif[:\s]+(.+?)$', block, _re.IGNORECASE | _re.DOTALL)
+        explanation = _re.sub(r'\s+', ' ', tm.group(1)).strip() if tm else ""
+        if q_text and correct:
+            questions.append({
+                "text": q_text, "type": q_type,
+                "options": "|".join(options),
+                "correct": correct,
+                "explanation": explanation,
+                "coins": 5
+            })
+    return questions
+
+@dp.message(F.text=="📥 Savollarni import qilish")
+async def bulk_import_start(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    await state.set_state(AdminStates.waiting_bulk_questions)
+    await message.answer(
+        "📥 <b>Savollarni import qilish</b>\n\n"
+        "Savollarni quyidagi formatda yozing va yuboring:\n\n"
+        "<code>1-savol (Ochiq): Savol matni?\n"
+        "To'g'ri javob: Javob\n"
+        "Tavsif: Tushuntirish\n\n"
+        "2-savol (4 talik variant): Savol matni?\n"
+        "A) Variant1 B) Variant2 C) Variant3 D) Variant4\n"
+        "To'g'ri javob: B\n"
+        "Tavsif: Tushuntirish</code>\n\n"
+        "✅ Bot o'zi ajratib, admin tasdiqlashga yuboradi\n"
+        "<i>/cancel — bekor qilish</i>",
+        parse_mode="HTML")
+
+@dp.message(AdminStates.waiting_bulk_questions)
+async def bulk_import_text(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    if not message.text:
+        await message.answer("⚠️ Matn yuboring!"); return
+    await state.update_data(bulk_text=message.text)
+    await state.set_state(AdminStates.waiting_bulk_category)
+    cats = db.get_categories()
+    buttons = []
+    row = []
+    for cat in cats:
+        row.append(InlineKeyboardButton(text=cat, callback_data=f"bulk_cat_{cat}"))
+        if len(row) == 2:
+            buttons.append(row); row = []
+    if row: buttons.append(row)
+    buttons.append([InlineKeyboardButton(text="📂 Yangi kategoriya", callback_data="bulk_cat_NEW")])
+    await message.answer("📂 Bu savollar qaysi kategoriyaga qo'shilsin?",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+@dp.callback_query(F.data.startswith("bulk_cat_"))
+async def bulk_import_category(callback: types.CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id): return
+    cat = callback.data[9:]
+    if cat == "NEW":
+        await callback.message.answer("📂 Yangi kategoriya nomini kiriting:")
+        await callback.answer(); return
+    data = await state.get_data()
+    bulk_text = data.get("bulk_text", "")
+    await state.clear()
+    await process_bulk_import(callback.message, bulk_text, cat, callback.from_user.id)
+    await callback.answer()
+
+@dp.message(AdminStates.waiting_bulk_category)
+async def bulk_new_category(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    data = await state.get_data()
+    bulk_text = data.get("bulk_text", "")
+    cat = message.text.strip()
+    db.add_category(cat)
+    await state.clear()
+    await process_bulk_import(message, bulk_text, cat, message.from_user.id)
+
+async def process_bulk_import(message_obj, text, category, admin_id):
+    questions = parse_bulk_questions(text)
+    if not questions:
+        await message_obj.answer("❌ Hech qanday savol aniqlanmadi. Formatni tekshiring!")
+        return
+    added = 0
+    for q in questions:
+        try:
+            pq_id = db.add_pending_question(
+                sub_admin_id=admin_id,
+                text=q["text"], q_type=q["type"],
+                options=q["options"], correct=q["correct"],
+                coins=q["coins"], category=category,
+                difficulty="orta", explanation=q["explanation"])
+            added += 1
+        except Exception as e:
+            pass
+    # Preview yuborish
+    preview = f"✅ <b>{added} ta savol import qilindi!</b>\n\n"
+    preview += "📋 <b>Admin tasdiqlashiga kutilayotganlar:</b>\n\n"
+    for i, q in enumerate(questions[:5]):
+        qtype_icon = "📝" if q["type"] == "test" else "✍️"
+        short = q["text"][:60] + "..." if len(q["text"]) > 60 else q["text"]
+        preview += f"{qtype_icon} {i+1}. {short}\n✅ Javob: {q['correct']}\n\n"
+    if len(questions) > 5:
+        preview += f"...va yana {len(questions)-5} ta savol\n\n"
+    preview += "⏳ <b>Kutayotgan savollar</b> bo'limidan tasdiqlang!"
+    await send_long_text(message_obj.chat.id, preview, parse_mode="HTML")
+    await message_obj.answer("⚙️ Admin Panel", reply_markup=admin_menu())
 
 async def main():
     # Bot buyruqlari ro'yxatini o'rnatish (/ bosilganda chiqadi)
