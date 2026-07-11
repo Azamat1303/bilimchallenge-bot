@@ -1,6 +1,6 @@
 import os
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "8930806821:AAGQTTeZow7y1bX_FfLhrRPj89XwcT8gDFM")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8930806821:AAFYwRqp6-u0qDwCRb0eRpJhRiwHkWzl79M")
 ADMIN_IDS = [6060306988]
 
 QUESTION_TIME = 30
@@ -13,6 +13,5 @@ STREAK_BONUSES = {
     10: 3.0,
 }
 
-# Groq API (Llama modellari)
 GROQ_API_KEY = "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"
 GROQ_MODEL   = "llama-3.3-70b-versatile"
