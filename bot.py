@@ -17,6 +17,15 @@ from config import BOT_TOKEN, ADMIN_IDS, PENALTY_PERCENT, TIMEOUT_PENALTY, STREA
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
+
+# ── STIKERLAR ────────────────────────────────────────────────────────────────
+STICKER_QUESTION    = "CAACAgQAAxkBAAFK2GFqGBZkvOQYIqxuYRxOg8yZ_kGpCQACLhMAAqtUsFGayERH0PRbYTsE"
+STICKER_CORRECT     = "CAACAgQAAxkBAAFK2FxqGBZODMIw26R9HpabXj_GXXHY_QAC9wsAAsVA0FKiYzU0cZkIATsE"
+STICKER_WRONG       = "CAACAgIAAxkBAAFK2GZqGBaGcsKcNXFNKzEjnwAB_N6SLx4AAiZjAAIexglIbW6k0yQK8f47BA"
+STICKER_LEADERBOARD = "CAACAgQAAxkBAAFK2F5qGBZib8V7GFYDhDMw8H10BaJIfgAChBYAAkfnsFEm5zMVxs4-nDsE"
+STICKER_TIMEOUT     = "CAACAgIAAxkBAAFK2CpqGBT9Y8JM8DQ_k5oZ_koPS4fNlgACWiYAAlDgwEhOxSLS4ALrSDsE"
+
+
 dp = Dispatcher(storage=MemoryStorage())
 
 # ── KONSTANTLAR ──────────────────────────────────────────────────────────────
@@ -114,20 +123,35 @@ async def groq_call(messages, max_tokens=1000):
             async with aiohttp.ClientSession() as s:
                 async with s.post(
                     "https://api.groq.com/openai/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-                    json={"model": model, "messages": messages, "max_tokens": max_tokens, "temperature": 0.7},
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    headers={
+                        "Authorization": f"Bearer {GROQ_API_KEY}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": model,
+                        "messages": messages,
+                        "max_tokens": max_tokens,
+                        "temperature": 0.7
+                    },
+                    timeout=aiohttp.ClientTimeout(total=40)
                 ) as r:
+                    if r.status != 200:
+                        text = await r.text()
+                        logging.warning(f"Groq {model} HTTP {r.status}: {text[:200]}")
+                        continue
                     d = await r.json()
                     if "error" in d:
-                        logging.warning(f"Groq {model}: {d['error']}")
+                        logging.warning(f"Groq {model} error: {d['error']}")
                         continue
                     if "choices" in d and d["choices"]:
-                        return d["choices"][0]["message"]["content"]
+                        result = d["choices"][0]["message"]["content"]
+                        logging.info(f"Groq {model} OK: {len(result)} chars")
+                        return result
         except asyncio.TimeoutError:
-            logging.warning(f"Groq {model} timeout")
+            logging.warning(f"Groq {model} timeout (40s)")
         except Exception as e:
-            logging.warning(f"Groq {model}: {e}")
+            logging.warning(f"Groq {model} exception: {e}")
+    logging.error("Barcha Groq modellari ishlamadi!")
     return None
 
 async def ai_req(prompt):
@@ -358,10 +382,12 @@ async def send_question(message, user_id, state, category, mode="all"):
     header = (f"🆔 <b>#{q_id}</b>  📂 <b>{cat}</b>  {d_icon} <b>{d_name}</b>\n"
               f"💰 +{coins}  ❌ -{round(coins*PENALTY_PERCENT,1)}  ⏱ {q_time}s\n\n"
               f"❓ <b>{q_text}</b>")
+    try: await bot.send_sticker(message.chat.id, sticker=STICKER_QUESTION)
+    except: pass
     if q_type == "test":
         sh_opts, new_cor = shuffle_opts(options, correct)
         opts_list = sh_opts.split("|")
-        opts_text = "\n".join([f"{chr(65+i)}. {opt}" for i, opt in enumerate(opts_list)])
+        opts_text = "\n".join
         full_text = header + "\n\n" + opts_text
         kb = build_opts_kb(opts_list, q_id, new_cor, "ans")
         if img:
@@ -435,6 +461,8 @@ async def q_timeout(uid, q_id, msg_id, chat_id, coins, state, total):
         except: pass
     try: await bot.edit_message_reply_markup(chat_id=chat_id, message_id=msg_id, reply_markup=None)
     except: pass
+    try: await bot.send_sticker(chat_id, sticker=STICKER_TIMEOUT)
+    except: pass
     data = await state.get_data()
     cat = data.get("category", "Barchasi")
     mode = data.get("qmode", "all")
@@ -469,6 +497,8 @@ async def handle_test_ans(callback: types.CallbackQuery, state: FSMContext):
         db.add_league_points(uid, 2)
         text = f"✅ <b>To'g'ri!</b> +{earned} coin"
         if bonus > 1: text += f" 🔥x{bonus}"
+        try: await bot.send_sticker(callback.message.chat.id, sticker=STICKER_CORRECT)
+        except: pass
     else:
         db.update_streak(uid, False)
         penalty = round(coins * PENALTY_PERCENT, 1)
@@ -477,6 +507,8 @@ async def handle_test_ans(callback: types.CallbackQuery, state: FSMContext):
         ci = ord(correct.upper()) - 65
         ct = opts_list[ci] if ci < len(opts_list) else correct
         text = f"❌ <b>Noto'g'ri!</b> -{penalty} coin\n✅ To'g'ri: <b>{ct}</b>"
+        try: await bot.send_sticker(callback.message.chat.id, sticker=STICKER_WRONG)
+        except: pass
     if expl: text += f"\n\n💡 <i>{expl}</i>"
     ud = db.get_user(uid)
     if ud: text += f"\n\n💰 {round(ud[3],1)}  🔥 {ud[6]}"
@@ -643,6 +675,8 @@ async def skip_prem(callback: types.CallbackQuery, state: FSMContext):
 async def show_leaderboard(message: types.Message):
     top = db.get_leaderboard(10)
     if not top: await message.answer("😔 Hali hech kim yo'q!"); return
+    try: await bot.send_sticker(message.chat.id, sticker=STICKER_LEADERBOARD)
+    except: pass
     medals = ["🥇","🥈","🥉"]
     text = "🏆 <b>Global Reyting — Top 10</b>\n\n"
     for i, (uid, fname, uname, coins) in enumerate(top):
@@ -935,25 +969,38 @@ async def handle_ai(message: types.Message, state: FSMContext):
     data = await state.get_data()
     history = data.get("history", [])
     thinking = await message.answer("⏳ AI o'ylayapti...")
-    reply = await ai_chat(history, text)
-    cost = max(1, len(reply) // 15)
+    try:
+        reply = await ai_chat(history, text)
+    except Exception as e:
+        logging.error(f"AI chat error: {e}")
+        reply = None
     try: await thinking.delete()
     except: pass
+    if not reply or reply.startswith("⚠️"):
+        await message.answer(
+            "⚠️ <b>AI hozirda ishlamayapti.</b>\n\n"
+            "Groq API bilan bog'lanishda xato. Keyinroq urinib ko'ring.",
+            parse_mode="HTML")
+        return
+    cost = max(1, len(reply) // 15)
     if coins < cost:
         await state.update_data(pending_reply=reply, pending_cost=cost, history=history)
         await state.set_state(UserSt.ai_debt)
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="✅ Qarz olaman", callback_data="ai_debt_yes"),
             InlineKeyboardButton(text="❌ Yo'q", callback_data="ai_debt_no")]])
-        await message.answer(f"⚠️ Coin yetmaydi!\nKerak: {cost}  Sizda: {coins}\nQarz olasizmi?",
-            reply_markup=kb); return
+        await message.answer(
+            f"⚠️ Coin yetmaydi!\nKerak: <b>{cost}</b>  Sizda: <b>{coins}</b>\nQarz olasizmi?",
+            parse_mode="HTML", reply_markup=kb)
+        return
     db.add_coins(uid, -cost)
     history.append({"role":"user","content":text})
     history.append({"role":"assistant","content":reply})
     await state.update_data(history=history)
     await state.set_state(UserSt.ai_chat)
     ud = db.get_user(uid)
-    await message.answer(f"🤖 {reply}\n\n💰 -{cost}  Qoldi: {round(ud[3],1)}", parse_mode="HTML")
+    coins_left = round(ud[3], 1) if ud else 0
+    await message.answer(f"🤖 {reply}\n\n💰 -{cost} coin  |  Qoldi: <b>{coins_left}</b>", parse_mode="HTML")
 
 @dp.callback_query(F.data == "ai_debt_yes")
 async def ai_debt_yes(callback: types.CallbackQuery, state: FSMContext):
@@ -1095,11 +1142,15 @@ async def duel_accept(callback: types.CallbackQuery):
                   f"💰 Tikish: {bet} coin  ❓ {len(q_ids)} savol\n"
                   f"🏆 G'olib 2x coin oladi!")
     try: await bot.send_message(ch_id, start_text, parse_mode="HTML")
+    except Exception as e: logging.error(f"duel start ch: {e}")
+    try: await callback.message.edit_text(start_text, parse_mode="HTML")
     except: pass
-    await callback.message.edit_text(start_text, parse_mode="HTML")
+    # Birinchi savolni yuborish - asyncio.sleep bilan ishonchli qilish
+    await asyncio.sleep(0.5)
     await send_duel_q(ch_id, d_id)
+    await asyncio.sleep(0.3)
     await send_duel_q(op_id, d_id)
-    await callback.answer()
+    await callback.answer("✅ Duel boshlandi!")
 
 @dp.callback_query(F.data.startswith("duel_decline_"))
 async def duel_decline(callback: types.CallbackQuery):
@@ -1141,8 +1192,9 @@ async def send_duel_q(uid, d_id):
     kb = build_opts_kb(opts_list, q_id, new_cor, f"duelans_{d_id}")
     try:
         await bot.send_message(uid, header, parse_mode="HTML", reply_markup=kb)
+        logging.info(f"Duel savol {answered+1} yuborildi: uid={uid} d_id={d_id}")
     except Exception as e:
-        logging.error(f"send_duel_q: {e}")
+        logging.error(f"send_duel_q uid={uid}: {e}")
 
 @dp.callback_query(F.data.startswith("duelans_"))
 async def duel_answer(callback: types.CallbackQuery):
