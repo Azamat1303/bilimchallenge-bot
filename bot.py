@@ -1050,7 +1050,13 @@ async def duel_menu(message: types.Message, state: FSMContext):
 
     active = db.get_active_duel(uid)
     if active:
-        await message.answer("⏳ Aktiv duelingiz bor!"); return
+        d_id = active[0]
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="❌ Duerni bekor qilish", callback_data=f"duel_cancel_{d_id}")]])
+        await message.answer(
+            "\u23f3 <b>Aktiv duelingiz bor!</b>\n\nDuerni bekor qilmoqchimisiz?",
+            parse_mode="HTML", reply_markup=kb)
+        return
 
     stats = db.get_duel_stats(uid)
     total_d = stats[0] or 0
@@ -1170,6 +1176,38 @@ async def duel_decline(callback: types.CallbackQuery):
 async def duel_close_cb(callback: types.CallbackQuery):
     await callback.message.edit_text("❌ Yopildi.")
     await callback.answer()
+
+@dp.callback_query(F.data.startswith("duel_cancel_"))
+async def duel_cancel_cb(callback: types.CallbackQuery):
+    uid = callback.from_user.id
+    d_id = int(callback.data[12:])
+    duel = db.get_duel(d_id)
+    if not duel:
+        await callback.answer("Duel topilmadi!", show_alert=True); return
+    _, ch_id, op_id, bet, status, *_ = duel
+    # Faqat ikki tomondagidan biri bekor qila oladi
+    if uid not in (ch_id, op_id):
+        await callback.answer("Bu sizning duelingiz emas!", show_alert=True); return
+    if status == "finished":
+        await callback.answer("Duel allaqachon tugagan!", show_alert=True); return
+    # Coinlarni qaytarish agar active bo'lsa
+    if status == "active":
+        db.add_coins(ch_id, bet)
+        db.add_coins(op_id, bet)
+    db.decline_duel(d_id)
+    other_id = op_id if uid == ch_id else ch_id
+    other = db.get_user(other_id)
+    me = db.get_user(uid)
+    my_name = me[2] if me else str(uid)
+    try:
+        coin_msg = f"\n\U0001f4b0 {bet} coin qaytarildi." if status == "active" else ""
+        await bot.send_message(other_id,
+            f"\u274c <b>{my_name}</b> duelni bekor qildi." + coin_msg,
+            parse_mode="HTML")
+    except: pass
+    coin_msg2 = f"\n\U0001f4b0 {bet} coin qaytarildi." if status == "active" else ""
+    await callback.message.edit_text("\u274c Duel bekor qilindi." + coin_msg2)
+    await callback.answer("\u2705 Duel bekor qilindi!")
 
 async def send_duel_q(uid, d_id):
     duel = db.get_duel(d_id)
@@ -2793,6 +2831,45 @@ async def handle_group_msg(message: types.Message):
     if message.text in MENU_TEXTS: return
     chat_id = message.chat.id
     uid = message.from_user.id
+    fname = message.from_user.first_name or str(uid)
+    uname = message.from_user.username or ""
+
+    # ── SO'Z O'YINI TEKSHIRUVI ──
+    if chat_id in word_games:
+        game = word_games[chat_id]
+        if uid != game.get("explainer_id") and game.get("word"):
+            word = game["word"]
+            if message.text.strip().lower() == word.strip().lower():
+                explainer_id = game.get("explainer_id")
+                explainer_name = game.get("explainer_name","?")
+                game_id = game["game_id"]
+                db.add_word_score(game_id, chat_id, uid, fname, uname, guessed=1)
+                if explainer_id:
+                    exp_user = db.get_user(explainer_id)
+                    exp_fname = exp_user[2] if exp_user else explainer_name
+                    exp_uname = exp_user[1] if exp_user else ""
+                    db.add_word_score(game_id, chat_id, explainer_id, exp_fname, exp_uname, explained=1)
+                db.add_coins(uid, 5)
+                if explainer_id: db.add_coins(explainer_id, 3)
+                if chat_id in word_explainer_tasks:
+                    word_explainer_tasks[chat_id].cancel()
+                    word_explainer_tasks.pop(chat_id, None)
+                if game.get("msg_id"):
+                    try: await bot.edit_message_reply_markup(
+                        chat_id=chat_id, message_id=game["msg_id"], reply_markup=None)
+                    except: pass
+                await message.reply(
+                    f"\U0001f389 <b>{fname}</b> topdi! So'z: <b>{word}</b>\n\n"
+                    f"\u2705 {fname}: +2 ball (+5 coin)\n"
+                    f"\U0001f4a1 {explainer_name}: +1 ball (+3 coin)\n\n"
+                    f"\u23f3 Keyingi so'z yuklanmoqda...",
+                    parse_mode="HTML")
+                await asyncio.sleep(2)
+                await _next_round(chat_id, game_id)
+                return
+        return  # So'z o'yinida boshqa xabarlar e'tiborga olinmaydi
+
+    # ── SAVOL-JAVOB TIZIMI ──
     aq = db.get_group_question(chat_id)
     if not aq: return
     _, q_id, correct, coins, asked_at, is_open = aq
@@ -2804,8 +2881,8 @@ async def handle_group_msg(message: types.Message):
     if not user:
         try:
             await message.reply(
-                f"👋 <b>{message.from_user.first_name}</b>, coin olish uchun botga qo'shiling!\n"
-                f"👉 <a href='{join_link}'>Botga o'tish</a>", parse_mode="HTML")
+                f"\U0001f44b <b>{fname}</b>, coin olish uchun botga qo'shiling!\n"
+                f"\U0001f449 <a href='{join_link}'>Botga o'tish</a>", parse_mode="HTML")
         except: pass
         return
     is_correct = check_ans(message.text, correct)
@@ -2818,15 +2895,15 @@ async def handle_group_msg(message: types.Message):
         try: db.save_answer(uid, q_id, True)
         except: pass
         db.close_group_question(chat_id)
-        text = (f"✅ <b>{message.from_user.first_name}</b> to'g'ri topdi!\n"
-                f"💰 +{earned} coin" + (f" (🔥x{bonus})" if bonus > 1 else "") +
-                "\n\n⏭ Keyingi savol uchun admin /savol yuboring")
+        text = (f"\u2705 <b>{fname}</b> to'g'ri topdi!\n"
+                f"\U0001f4b0 +{earned} coin" + (f" (\U0001f525x{bonus})" if bonus > 1 else "") +
+                "\n\n\u23ed Keyingi savol uchun admin /savol yuboring")
         ud = db.get_user(uid)
-        if ud: text += f"\n🏆 Reyting: #{db.get_user_rank(uid)}"
+        if ud: text += f"\n\U0001f3c6 Reyting: #{db.get_user_rank(uid)}"
         await message.reply(text, parse_mode="HTML")
     else:
         db.save_group_answer(chat_id, uid, q_id, False)
-        try: await message.reply("❌ Noto'g'ri! Boshqalar davom etishi mumkin.")
+        try: await message.reply("\u274c Noto'g'ri! Boshqalar davom etishi mumkin.")
         except: pass
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3170,12 +3247,17 @@ async def groq_auto_question():
 # ══════════════════════════════════════════════════════════════════════════════
 async def main():
     await bot.set_my_commands([
-        types.BotCommand(command="start",   description="🚀 Botni boshlash"),
-        types.BotCommand(command="savol",   description="🎯 Guruhda savol (faqat admin)"),
-        types.BotCommand(command="reyting", description="🏆 Guruh reytingi"),
-        types.BotCommand(command="stat",    description="📊 Guruh statistikasi"),
-        types.BotCommand(command="skip",    description="⏭ Savolni o'tkazish (guruh admin)"),
-        types.BotCommand(command="cancel",  description="❌ Amalni bekor qilish"),
+        types.BotCommand(command="start",      description="🚀 Botni boshlash"),
+        types.BotCommand(command="savol",      description="🎯 Guruhda savol (faqat admin)"),
+        types.BotCommand(command="reyting",    description="🏆 Guruh reytingi"),
+        types.BotCommand(command="stat",       description="📊 Guruh statistikasi"),
+        types.BotCommand(command="skip",       description="⏭ Savolni o'tkazish (guruh admin)"),
+        types.BotCommand(command="sozboshi",   description="🎮 So'z o'yinini boshlash"),
+        types.BotCommand(command="sozstop",    description="🛑 So'z o'yinini to'xtatish"),
+        types.BotCommand(command="sozreyting", description="🏅 So'z o'yini reytingi"),
+        types.BotCommand(command="sozqosh",    description="📝 So'z qo'shish (admin)"),
+        types.BotCommand(command="sozlar",     description="📋 So'zlar ro'yxati (admin)"),
+        types.BotCommand(command="cancel",     description="❌ Amalni bekor qilish"),
     ])
     asyncio.create_task(check_sub_terms())
     asyncio.create_task(groq_auto_question())
@@ -3183,3 +3265,424 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+# ══════════════════════════════════════════════════════════════════════════════
+# SO'Z O'YINI (TABOO / KROKO'DIL)
+# ══════════════════════════════════════════════════════════════════════════════
+import asyncio as _asyncio
+
+# Aktiv o'yinlar: chat_id -> {game_id, word_id, word, explainer_id, msg_id, task, used_word_ids, round}
+word_games: dict = {}
+# Timeout task: chat_id -> asyncio.Task
+word_explainer_tasks: dict = {}
+
+def wg_scores_text(scores):
+    if not scores: return "Hali hech kim ball olmadi."
+    medals = ["🥇","🥈","🥉"]
+    lines = []
+    for i,(uid,fname,uname,exp,guess,total) in enumerate(scores):
+        m = medals[i] if i < 3 else f"{i+1}."
+        name = fname or uname or str(uid)
+        lines.append(f"{m} <b>{name}</b> — {total} ball (tushuntirdi:{exp} topdi:{guess})")
+    return "\n".join(lines)
+
+# ── ADMIN: SO'Z QO'SHISH ──────────────────────────────────────────────────────
+class WordSt(StatesGroup):
+    add_words = State()
+    bulk_words = State()
+
+@dp.message(Command("sozqosh"))
+async def cmd_soz_qosh(message: types.Message, state: FSMContext):
+    if not is_admin(message.from_user.id): return
+    await state.set_state(WordSt.add_words)
+    count = db.get_word_count()
+    await message.answer(
+        f"📝 <b>So'z qo'shish</b>\n\nHozir bazada: <b>{count} ta</b> so'z\n\n"
+        "Har qatorda bitta so'z yozing:\n"
+        "<code>olma\ndaraxt\nkompyuter</code>\n\n"
+        "<i>/cancel — bekor</i>",
+        parse_mode="HTML")
+
+@dp.message(WordSt.add_words)
+async def add_words_handler(message: types.Message, state: FSMContext):
+    if not message.text: return
+    if message.text in MENU_TEXTS: await state.clear(); await route_menu(message, state); return
+    words = [w.strip() for w in message.text.split("\n") if w.strip()]
+    added = 0
+    for word in words:
+        try:
+            db.add_word(word, added_by=message.from_user.id)
+            added += 1
+        except Exception as e:
+            logging.error(f"word add: {e}")
+    await state.clear()
+    await message.answer(
+        f"✅ <b>{added} ta so'z qo'shildi!</b>\nJami bazada: <b>{db.get_word_count()}</b> ta so'z",
+        parse_mode="HTML", reply_markup=admin_menu())
+
+@dp.message(Command("sozlar"))
+async def cmd_sozlar(message: types.Message):
+    if not is_admin(message.from_user.id): return
+    words = db.get_all_words(30)
+    if not words:
+        await message.answer("📝 So'zlar yo'q. /sozqosh bilan qo'shing.")
+        return
+    text = f"📝 <b>So'zlar ro'yxati ({db.get_word_count()} ta)</b>\n\n"
+    for w_id, word, cat, is_active in words:
+        icon = "✅" if is_active else "❌"
+        text += f"{icon} #{w_id} — <b>{word}</b> [{cat}]\n"
+    text += "\n<i>/sozochir [id] — so'zni o'chirish</i>"
+    await send_long(message.chat.id, text, parse_mode="HTML")
+
+@dp.message(Command("sozochir"))
+async def cmd_soz_ochir(message: types.Message):
+    if not is_admin(message.from_user.id): return
+    parts = message.text.split()
+    if len(parts) < 2 or not parts[1].isdigit():
+        await message.answer("❌ Format: /sozochir [id]"); return
+    db.delete_word(int(parts[1]))
+    await message.answer(f"✅ So'z #{parts[1]} o'chirildi.")
+
+# ── GURUHDA O'YIN BOSHLASH ────────────────────────────────────────────────────
+@dp.message(Command("sozboshi"))
+async def cmd_soz_boshi(message: types.Message):
+    if message.chat.type not in ("group","supergroup"): return
+    chat_id = message.chat.id
+    uid = message.from_user.id
+
+    if db.get_word_count() < 3:
+        await message.reply(
+            "❌ So'zlar yetarli emas!\n"
+            "Admin /sozqosh buyrug'i bilan so'z qo'shsin.")
+        return
+
+    if chat_id in word_games:
+        await message.reply("⏳ O'yin allaqachon ketmoqda! /sozstop — to'xtatish")
+        return
+
+    game_id = db.create_word_game(chat_id, uid)
+    starter_name = message.from_user.first_name or str(uid)
+
+    word_games[chat_id] = {
+        "game_id": game_id,
+        "word_id": None,
+        "word": None,
+        "explainer_id": None,
+        "explainer_name": None,
+        "msg_id": None,
+        "used_word_ids": [],
+        "round": 0,
+    }
+
+    await message.answer(
+        f"🎮 <b>SO'Z O'YINI BOSHLANDI!</b>\n\n"
+        f"O'yinni boshlagan: <b>{starter_name}</b>\n\n"
+        f"Qoidalar:\n"
+        f"🎯 Tushuntiruvchi so'zni ko'rib, guruhga tushuntiradi\n"
+        f"✅ Kim topsa → +2 ball\n"
+        f"💡 Tushuntiruvchi → +1 ball\n\n"
+        f"Birinchi so'z yuklanmoqda...",
+        parse_mode="HTML")
+
+    await asyncio.sleep(1)
+    await _next_round(chat_id, game_id)
+
+async def _next_round(chat_id, game_id):
+    """Yangi raund — yangi so'z va tushuntiruvchi tayinlash"""
+    if chat_id not in word_games: return
+    game = word_games[chat_id]
+    used = game["used_word_ids"]
+
+    # Yangi so'z olish
+    word_row = db.get_random_word(exclude_ids=used if used else None)
+    if not word_row:
+        # Barcha so'zlar tugadi — ro'yxatni tozalab qayta boshlash
+        game["used_word_ids"] = []
+        word_row = db.get_random_word()
+    if not word_row:
+        await bot.send_message(chat_id, "❌ So'zlar tugadi! Admin yangi so'z qo'shing.")
+        return
+
+    w_id, word, cat = word_row
+    game["used_word_ids"].append(w_id)
+    game["word_id"] = w_id
+    game["word"] = word
+    game["round"] += 1
+    game["explainer_id"] = None
+    game["explainer_name"] = None
+    game["msg_id"] = None
+
+    db.set_game_word_and_explainer(game_id, w_id, None, None, game["round"])
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(
+            text="👁 So'zni ko'rish (tushuntiruvchi bo'lish)",
+            callback_data=f"wg_see_{chat_id}_{game_id}")]])
+
+    sent = await bot.send_message(
+        chat_id,
+        f"🎮 <b>Yangi o'yin boshlandi!</b>\n\n"
+        f"👤 Tushuntiruvchi: <i>hali tanlanmadi</i>\n\n"
+        f"Boshqalar so'zni topishga harakat qilsin! ⏳ 5 daqiqa vaqt bor.\n\n"
+        f"👇 Tushuntiruvchi bo'lish uchun tugmani bosing:",
+        parse_mode="HTML", reply_markup=kb)
+
+    game["msg_id"] = sent.message_id
+
+    # 2 soniyalik timeout — agar bosilmasa, keyinchi bosgan oladi
+    # Bu timeout faqat "birinchi bosish" uchun emas
+    # Telegram da "2 soniya" ni quyidagicha amalga oshiramiz:
+    # Tugma bosilganda timestamp tekshiramiz
+    game["round_started"] = asyncio.get_event_loop().time()
+
+    # 5 daqiqalik raund timeout
+    if chat_id in word_explainer_tasks:
+        word_explainer_tasks[chat_id].cancel()
+    word_explainer_tasks[chat_id] = asyncio.create_task(
+        _round_timeout(chat_id, game_id, sent.message_id, 300))
+
+@dp.callback_query(F.data.startswith("wg_see_"))
+async def wg_see_word(callback: types.CallbackQuery):
+    parts = callback.data.split("_")
+    chat_id = int(parts[2])
+    game_id = int(parts[3])
+    uid = callback.from_user.id
+    fname = callback.from_user.first_name or str(uid)
+
+    # Botga obuna tekshirish
+    user = db.get_user(uid)
+    if not user:
+        me = await bot.get_me()
+        await callback.answer(
+            f"❌ Coin olish uchun avval botga qo'shiling!\nt.me/{me.username}",
+            show_alert=True)
+        return
+
+    if chat_id not in word_games:
+        await callback.answer("O'yin topilmadi!", show_alert=True); return
+
+    game = word_games[chat_id]
+    if game["game_id"] != game_id:
+        await callback.answer("Eski o'yin!", show_alert=True); return
+
+    # Agar tushuntiruvchi allaqachon bor bo'lsa
+    if game["explainer_id"] is not None:
+        if game["explainer_id"] == uid:
+            # O'zi qayta bosyapti — so'zni ko'rsatish
+            word = game["word"]
+            await callback.answer(f"🔤 Yashirin so'z: {word}", show_alert=True)
+        else:
+            await callback.answer("⏳ Tushuntiruvchi allaqachon bor!", show_alert=True)
+        return
+
+    # Yangi tushuntiruvchi tayinlash
+    game["explainer_id"] = uid
+    game["explainer_name"] = fname
+    game["last_explainer_time"] = asyncio.get_event_loop().time()
+
+    db.set_game_word_and_explainer(game_id, game["word_id"], uid, fname, game["round"])
+
+    word = game["word"]
+
+    # Guruhga xabar yangilash
+    try:
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="👁 So'zni ko'rish", callback_data=f"wg_see_{chat_id}_{game_id}")],
+            [InlineKeyboardButton(text="⏭ Keyingi so'z", callback_data=f"wg_next_{chat_id}_{game_id}"),
+             InlineKeyboardButton(text="⏮ Oldingi o'tkazish", callback_data=f"wg_skip_{chat_id}_{game_id}")],
+            [InlineKeyboardButton(text="🔤 So'zni ochish (ochish)", callback_data=f"wg_reveal_{chat_id}_{game_id}")]])
+        await bot.edit_message_text(
+            f"🎮 <b>Yangi o'yin boshlandi!</b>\n\n"
+            f"👤 Tushuntiruvchi: <b>{fname}</b>\n\n"
+            f"Boshqalar so'zni topishga harakat qilsin! ⏳ 5 daqiqa vaqt bor.",
+            chat_id=chat_id, message_id=game["msg_id"],
+            parse_mode="HTML", reply_markup=kb)
+    except: pass
+
+    # Tushuntiruvchiga so'zni ko'rsatish
+    await callback.answer(f"🔤 Yashirin so'z: {word}", show_alert=True)
+
+@dp.callback_query(F.data.startswith("wg_next_"))
+async def wg_next_word(callback: types.CallbackQuery):
+    """Faqat tushuntiruvchi keyingi so'zga o'tkazadi"""
+    parts = callback.data.split("_")
+    chat_id = int(parts[2])
+    game_id = int(parts[3])
+    uid = callback.from_user.id
+
+    if chat_id not in word_games:
+        await callback.answer("O'yin topilmadi!"); return
+    game = word_games[chat_id]
+    if game["explainer_id"] != uid:
+        await callback.answer("Siz tushuntiruvchi emassiz!", show_alert=True); return
+
+    await callback.answer("⏭ Keyingi so'z!")
+    try: await bot.edit_message_reply_markup(chat_id=chat_id, message_id=game["msg_id"], reply_markup=None)
+    except: pass
+    await bot.send_message(chat_id, f"⏭ <b>{game['explainer_name']}</b> so'zni o'tkazdi.", parse_mode="HTML")
+    await _next_round(chat_id, game_id)
+
+@dp.callback_query(F.data.startswith("wg_skip_"))
+async def wg_skip(callback: types.CallbackQuery):
+    """Oldingi so'zni o'tkazish (tushuntiruvchi uchun)"""
+    await wg_next_word(callback)
+
+@dp.callback_query(F.data.startswith("wg_reveal_"))
+async def wg_reveal(callback: types.CallbackQuery):
+    """Tushuntiruvchi so'zni ochib, raundni yakunlaydi"""
+    parts = callback.data.split("_")
+    chat_id = int(parts[2])
+    game_id = int(parts[3])
+    uid = callback.from_user.id
+
+    if chat_id not in word_games:
+        await callback.answer("O'yin topilmadi!"); return
+    game = word_games[chat_id]
+    if game["explainer_id"] != uid:
+        await callback.answer("Siz tushuntiruvchi emassiz!", show_alert=True); return
+
+    word = game["word"]
+    await callback.answer(f"So'z: {word}", show_alert=True)
+
+# Guruhda javob tekshirish
+@dp.message(F.chat.type.in_({"group","supergroup"}))
+async def handle_word_game_guess(message: types.Message):
+    """So'z o'yinida javob tekshirish — guruh xabarlar handleri"""
+    # Avval oddiy savol tizimini tekshirish (handle_group_msg ham guruhda)
+    # Bu handler oxirida joylashgan shuning uchun avvalgi handler ishlaydi
+    pass
+
+# ── O'YIN TUGASH / TO'XTATISH ─────────────────────────────────────────────────
+@dp.message(Command("sozstop"))
+async def cmd_soz_stop(message: types.Message):
+    if message.chat.type not in ("group","supergroup"): return
+    chat_id = message.chat.id
+    uid = message.from_user.id
+    try:
+        member = await bot.get_chat_member(chat_id, uid)
+        if member.status not in ("administrator","creator") and not is_admin(uid):
+            await message.reply("❌ Faqat admin to'xtatishi mumkin."); return
+    except: pass
+    await _end_word_game(chat_id)
+
+@dp.message(Command("sozreyting"))
+async def cmd_soz_reyting(message: types.Message):
+    if message.chat.type not in ("group","supergroup"): return
+    top = db.get_word_game_leaderboard(message.chat.id, 10)
+    if not top:
+        await message.reply("🏆 Hali hech kim ball olmagan!")
+        return
+    medals = ["🥇","🥈","🥉"]
+    text = f"🏆 <b>{message.chat.title} — So'z O'yini Reytingi</b>\n\n"
+    for i,(uid,fname,uname,exp,guess,total) in enumerate(top):
+        m = medals[i] if i < 3 else f"{i+1}."
+        name = fname or uname or str(uid)
+        text += f"{m} <b>{name}</b> — {total} ball (tushuntirdi:{exp} topdi:{guess})\n"
+    await message.reply(text, parse_mode="HTML")
+
+async def _round_timeout(chat_id, game_id, msg_id, seconds):
+    """5 daqiqa o'tsa raund tugaydi"""
+    await asyncio.sleep(seconds)
+    if chat_id not in word_games: return
+    game = word_games[chat_id]
+    if game["game_id"] != game_id: return
+    word = game["word"] or "?"
+    try:
+        await bot.edit_message_reply_markup(chat_id=chat_id, message_id=msg_id, reply_markup=None)
+    except: pass
+    await bot.send_message(
+        chat_id,
+        f"⏰ <b>Vaqt tugadi!</b>\n\n"
+        f"Yashirin so'z: <b>{word}</b>\n\n"
+        f"Keyingi so'z yuklanmoqda...",
+        parse_mode="HTML")
+    await asyncio.sleep(2)
+    await _next_round(chat_id, game_id)
+
+async def _end_word_game(chat_id):
+    """O'yinni tugatish"""
+    if chat_id not in word_games:
+        try: await bot.send_message(chat_id, "❌ Aktiv o'yin yo'q.")
+        except: pass
+        return
+    game = word_games[chat_id]
+    game_id = game["game_id"]
+    if chat_id in word_explainer_tasks:
+        word_explainer_tasks[chat_id].cancel()
+        word_explainer_tasks.pop(chat_id, None)
+    # Natijalar
+    scores = db.get_word_game_scores(game_id)
+    db.finish_word_game(chat_id)
+    word_games.pop(chat_id, None)
+    scores_text = wg_scores_text(scores)
+    await bot.send_message(
+        chat_id,
+        f"🏁 <b>O'YIN TUGADI!</b>\n\n"
+        f"🏆 <b>Natijalar:</b>\n{scores_text}\n\n"
+        f"Yangi o'yin: /sozboshi",
+        parse_mode="HTML")
+
+# ── GURUH XABARLARINI QAYTA ISHLASH (SO'Z O'YINI UCHUN) ──────────────────────
+# Eslatma: handle_group_msg allaqachon yuqorida savol javob uchun belgilangan.
+# Quyidagi middleware orqali so'z o'yini javobi tekshiriladi.
+
+@dp.message(F.chat.type.in_({"group","supergroup"}) & F.text)
+async def handle_word_guess(message: types.Message):
+    """So'z o'yini taxmini — faqat so'z o'yini aktiv bo'lsa"""
+    chat_id = message.chat.id
+    if chat_id not in word_games: return
+    if not message.text or message.text.startswith("/"): return
+    if message.text in MENU_TEXTS: return
+
+    game = word_games[chat_id]
+    uid = message.from_user.id
+    fname = message.from_user.first_name or str(uid)
+    uname = message.from_user.username or ""
+
+    # Tushuntiruvchi o'zi ayta olmaydi
+    if uid == game.get("explainer_id"): return
+
+    word = game.get("word","")
+    if not word: return
+
+    # Javob tekshirish (case-insensitive)
+    if message.text.strip().lower() == word.strip().lower():
+        explainer_id = game.get("explainer_id")
+        explainer_name = game.get("explainer_name","?")
+        game_id = game["game_id"]
+
+        # Ball berish
+        db.add_word_score(game_id, chat_id, uid, fname, uname, guessed=1)
+        if explainer_id:
+            exp_user = db.get_user(explainer_id)
+            exp_fname = exp_user[2] if exp_user else explainer_name
+            exp_uname = exp_user[1] if exp_user else ""
+            db.add_word_score(game_id, chat_id, explainer_id, exp_fname, exp_uname, explained=1)
+
+        # Coin berish
+        db.add_coins(uid, 5)  # topgan
+        if explainer_id: db.add_coins(explainer_id, 3)  # tushuntirgan
+
+        # Raundni yakunlash
+        if chat_id in word_explainer_tasks:
+            word_explainer_tasks[chat_id].cancel()
+            word_explainer_tasks.pop(chat_id, None)
+
+        # Tugmani o'chirish
+        if game.get("msg_id"):
+            try: await bot.edit_message_reply_markup(
+                chat_id=chat_id, message_id=game["msg_id"], reply_markup=None)
+            except: pass
+
+        await message.reply(
+            f"🎉 <b>{fname}</b> topdi! So'z: <b>{word}</b>\n\n"
+            f"✅ {fname}: +2 ball (+5 coin)\n"
+            f"💡 {explainer_name}: +1 ball (+3 coin)\n\n"
+            f"⏳ Keyingi so'z yuklanmoqda...",
+            parse_mode="HTML")
+
+        await asyncio.sleep(2)
+        await _next_round(chat_id, game_id)
+
+# ── ADMIN: SO'Z O'YINI MENYUSIGA QO'SHISH ────────────────────────────────────
+# /start da buyruqlar ro'yxatiga qo'shiladi (main() da)
