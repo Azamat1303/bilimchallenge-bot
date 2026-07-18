@@ -280,6 +280,8 @@ class Database:
                 answered_at   TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        # So'z o'yini jadvallar
+        self.create_word_game_tables()
         # Migrate
         for sql in [
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS referrer_id BIGINT DEFAULT NULL",
@@ -851,6 +853,147 @@ class Database:
     def get_weekly_leaderboard(self, limit=10):
         cur = self.get_conn().cursor()
         cur.execute("SELECT l.user_id,u.first_name,u.username,l.week_points,l.league FROM leagues l LEFT JOIN users u ON u.user_id=l.user_id ORDER BY l.week_points DESC LIMIT %s", (limit,))
+        return cur.fetchall()
+
+
+    # ── SO'Z O'YINI (TABOO) ──────────────────────────────────────────────────
+    def create_word_game_tables(self):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS word_game_words (
+                id         SERIAL PRIMARY KEY,
+                word       TEXT NOT NULL,
+                category   TEXT DEFAULT 'Umumiy',
+                added_by   BIGINT DEFAULT NULL,
+                is_active  INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS word_games (
+                id              SERIAL PRIMARY KEY,
+                chat_id         BIGINT,
+                status          TEXT DEFAULT 'active',
+                current_word_id INTEGER DEFAULT NULL,
+                explainer_id    BIGINT DEFAULT NULL,
+                explainer_name  TEXT DEFAULT '',
+                round_num       INTEGER DEFAULT 1,
+                started_at      TEXT DEFAULT CURRENT_TIMESTAMP,
+                started_by      BIGINT DEFAULT NULL
+            )
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS word_game_scores (
+                id         SERIAL PRIMARY KEY,
+                game_id    INTEGER,
+                chat_id    BIGINT,
+                user_id    BIGINT,
+                first_name TEXT DEFAULT '',
+                username   TEXT DEFAULT '',
+                explained  INTEGER DEFAULT 0,
+                guessed    INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(game_id, user_id)
+            )
+        """)
+
+    def add_word(self, word, category='Umumiy', added_by=None):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "INSERT INTO word_game_words (word, category, added_by) VALUES (%s,%s,%s) RETURNING id",
+            (word.strip(), category, added_by))
+        return cur.fetchone()[0]
+
+    def get_random_word(self, exclude_ids=None):
+        cur = self.get_conn().cursor()
+        conds = ["is_active=1"]
+        params = []
+        if exclude_ids:
+            conds.append("id != ALL(%s)")
+            params.append(exclude_ids)
+        where = " AND ".join(conds)
+        cur.execute(f"SELECT id, word, category FROM word_game_words WHERE {where} ORDER BY RANDOM() LIMIT 1", params)
+        return cur.fetchone()
+
+    def get_all_words(self, limit=50):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT id, word, category, is_active FROM word_game_words ORDER BY id DESC LIMIT %s", (limit,))
+        return cur.fetchall()
+
+    def delete_word(self, word_id):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE word_game_words SET is_active=0 WHERE id=%s", (word_id,))
+
+    def get_word_count(self):
+        cur = self.get_conn().cursor()
+        cur.execute("SELECT COUNT(*) FROM word_game_words WHERE is_active=1")
+        return cur.fetchone()[0]
+
+    def create_word_game(self, chat_id, started_by):
+        cur = self.get_conn().cursor()
+        # Eski o'yinni yopish
+        cur.execute("UPDATE word_games SET status='finished' WHERE chat_id=%s AND status='active'", (chat_id,))
+        cur.execute(
+            "INSERT INTO word_games (chat_id, status, started_by) VALUES (%s,'active',%s) RETURNING id",
+            (chat_id, started_by))
+        return cur.fetchone()[0]
+
+    def get_active_word_game(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute(
+            "SELECT * FROM word_games WHERE chat_id=%s AND status='active' ORDER BY id DESC LIMIT 1",
+            (chat_id,))
+        return cur.fetchone()
+
+    def set_game_word_and_explainer(self, game_id, word_id, explainer_id, explainer_name, round_num):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            UPDATE word_games
+            SET current_word_id=%s, explainer_id=%s, explainer_name=%s, round_num=%s
+            WHERE id=%s
+        """, (word_id, explainer_id, explainer_name, round_num, game_id))
+
+    def finish_word_game(self, chat_id):
+        cur = self.get_conn().cursor()
+        cur.execute("UPDATE word_games SET status='finished' WHERE chat_id=%s AND status='active'", (chat_id,))
+
+    def add_word_score(self, game_id, chat_id, user_id, first_name, username, explained=0, guessed=0):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            INSERT INTO word_game_scores (game_id, chat_id, user_id, first_name, username, explained, guessed)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (game_id, user_id) DO UPDATE
+            SET explained=word_game_scores.explained+%s,
+                guessed=word_game_scores.guessed+%s,
+                first_name=%s, username=%s
+        """, (game_id, chat_id, user_id, first_name, username, explained, guessed,
+              explained, guessed, first_name, username))
+
+    def get_word_game_scores(self, game_id):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT user_id, first_name, username,
+                   explained, guessed,
+                   (explained*1 + guessed*2) as total
+            FROM word_game_scores
+            WHERE game_id=%s
+            ORDER BY total DESC
+        """, (game_id,))
+        return cur.fetchall()
+
+    def get_word_game_leaderboard(self, chat_id, limit=10):
+        cur = self.get_conn().cursor()
+        cur.execute("""
+            SELECT s.user_id, s.first_name, s.username,
+                   SUM(s.explained) as total_exp,
+                   SUM(s.guessed) as total_guess,
+                   SUM(s.explained*1 + s.guessed*2) as total
+            FROM word_game_scores s
+            JOIN word_games g ON g.id=s.game_id
+            WHERE g.chat_id=%s
+            GROUP BY s.user_id, s.first_name, s.username
+            ORDER BY total DESC LIMIT %s
+        """, (chat_id, limit))
         return cur.fetchall()
 
     def reset_weekly_points(self):
