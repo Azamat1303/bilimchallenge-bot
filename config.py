@@ -13,5 +13,5 @@ STREAK_BONUSES = {
     10: 3.0,
 }
 
-GROQ_API_KEY = "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"
-GROQ_MODEL   = "llama-3.3-70b-versatile"
+GROQ_API_KEY = "AQ.Ab8RN6LYWwO-KQBQATl1jF9eiqvC1ZnJcyQAjxDZG7PpDwdUyQ"
+GROQ_MODEL   = "gemini-2.0-flash"
