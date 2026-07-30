@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reyting — BilimChallenge</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .page{padding:100px 0 60px;}
+  .page-header{text-align:center;margin-bottom:36px;}
+  .page-header h1{font-size:clamp(26px,3.5vw,36px);font-weight:700;margin-bottom:10px;}
+  .page-header p{color:var(--text-dim);font-size:14px;}
+
+  .podium{display:flex;justify-content:center;align-items:flex-end;gap:14px;margin:36px 0 44px;flex-wrap:wrap;}
+  .podium-slot{text-align:center;width:130px;}
+  .podium-avatar{
+    width:64px;height:64px;border-radius:50%;margin:0 auto 10px;overflow:hidden;
+    background:var(--panel-2);border:2px solid var(--line);display:flex;align-items:center;justify-content:center;
+  }
+  .podium-avatar img{width:100%;height:100%;object-fit:cover;}
+  .podium-avatar .fallback{font-family:'Space Grotesk';font-weight:700;font-size:22px;color:var(--cyan);}
+  .podium-slot.first .podium-avatar{width:80px;height:80px;border-color:var(--gold);box-shadow:0 0 24px rgba(245,185,66,0.35);}
+  .podium-slot.second .podium-avatar{border-color:#C7CCD6;}
+  .podium-slot.third .podium-avatar{border-color:#B87A52;}
+  .podium-medal{font-size:22px;margin-bottom:4px;}
+  .podium-name{font-size:13px;font-weight:600;margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .podium-coins{font-size:12px;color:var(--gold);}
+  .podium-bar{
+    height:60px;background:var(--panel);border:1px solid var(--line);border-radius:10px 10px 0 0;margin-top:10px;
+  }
+  .podium-slot.first .podium-bar{height:90px;background:linear-gradient(180deg,rgba(245,185,66,0.15),var(--panel));border-color:var(--gold);}
+  .podium-slot.second .podium-bar{height:70px;}
+  .podium-slot.third .podium-bar{height:50px;}
+
+  .rank-list{max-width:640px;margin:0 auto;}
+  .rank-row{
+    display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:12px;
+    background:var(--panel);border:1px solid var(--line);margin-bottom:8px;transition:border-color 0.2s;
+  }
+  .rank-row:hover{border-color:var(--cyan-dim);cursor:pointer;}
+  .rank-num{width:28px;font-family:'Space Grotesk';font-weight:700;font-size:14px;color:var(--text-dim);text-align:center;}
+  .rank-avatar{width:38px;height:38px;border-radius:50%;overflow:hidden;background:var(--panel-2);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .rank-avatar img{width:100%;height:100%;object-fit:cover;}
+  .rank-avatar .fallback{font-family:'Space Grotesk';font-weight:700;font-size:14px;color:var(--cyan);}
+  .rank-name{flex:1;font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .rank-username{color:var(--text-dim);font-size:12px;font-weight:400;}
+  .rank-coins{font-family:'Space Grotesk';font-weight:700;color:var(--gold);font-size:14px;}
+
+  .my-rank-banner{
+    max-width:640px;margin:0 auto 24px;background:rgba(62,217,200,0.08);border:1px solid var(--cyan-dim);
+    border-radius:12px;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;font-size:14px;
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg class="brand-mark" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </a>
+    <div class="nav-links">
+      <a href="index.html">Savollar</a>
+      <a href="rating.html" class="active">Reyting</a>
+      <a href="shop.html">Magazin</a>
+      <a href="games.html">Mini o'yinlar</a>
+      <a href="search.html">Qidiruv</a>
+    </div>
+    <div class="nav-right" id="authSlot"></div>
+  </div>
+</nav>
+
+<div class="page wrap">
+  <div class="page-header">
+    <h1>🏆 Global Reyting</h1>
+    <p>Eng ko'p coin to'plagan foydalanuvchilar</p>
+  </div>
+
+  <div id="myRankBanner"></div>
+  <div id="podiumArea"></div>
+  <div class="rank-list" id="rankList">
+    <div style="text-align:center;padding:40px;"><div class="spinner" style="margin:0 auto;"></div></div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="brand" style="font-size:14px;">
+      <svg class="brand-mark" style="width:20px;height:20px;" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </div>
+    <div class="foot-links">
+      <a href="https://t.me/BilimChallenge_bot" target="_blank" rel="noopener">Telegram bot</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+async function loadLeaderboard() {
+  try {
+    const top = await BC.api("/api/leaderboard?limit=50");
+    renderPodium(top.slice(0, 3));
+    renderList(top);
+    renderMyRank();
+  } catch (e) {
+    document.getElementById("rankList").innerHTML = `<div class="empty-state"><p>Xato: ${BC.escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function avatarHtml(user, size) {
+  const initial = user.first_name && user.first_name[0] ? user.first_name[0].toUpperCase() : "?";
+  return user.photo_url
+    ? `<img src="${user.photo_url}" alt="">`
+    : `<div class="fallback">${initial}</div>`;
+}
+
+function renderPodium(top3) {
+  const area = document.getElementById("podiumArea");
+  if (!top3.length) {
+    area.innerHTML = "";
+    return;
+  }
+  const order = [1, 0, 2]; // 2-o'rin, 1-o'rin, 3-o'rin tartibida ko'rsatiladi
+  const classes = ["second", "first", "third"];
+  const medals = ["🥈", "🥇", "🥉"];
+
+  let html = `<div class="podium">`;
+  order.forEach((idx, i) => {
+    const user = top3[idx];
+    if (!user) return;
+    html += `
+      <div class="podium-slot ${classes[i]}" onclick="location.href='profile.html?id=${user.user_id}'">
+        <div class="podium-medal">${medals[i]}</div>
+        <div class="podium-avatar">${avatarHtml(user)}</div>
+        <div class="podium-name">${BC.escapeHtml(user.first_name || user.username || "?")}</div>
+        <div class="podium-coins">${BC.formatCoins(user.coins)} coin</div>
+        <div class="podium-bar"></div>
+      </div>`;
+  });
+  html += `</div>`;
+  area.innerHTML = html;
+}
+
+function renderList(top) {
+  const list = document.getElementById("rankList");
+  list.innerHTML = "";
+  top.forEach((user, i) => {
+    const row = document.createElement("div");
+    row.className = "rank-row";
+    row.addEventListener("click", () => (location.href = `profile.html?id=${user.user_id}`));
+    row.innerHTML = `
+      <div class="rank-num">${i + 1}</div>
+      <div class="rank-avatar">${avatarHtml(user)}</div>
+      <div class="rank-name">${BC.escapeHtml(user.first_name || "?")} ${user.username ? `<span class="rank-username">@${BC.escapeHtml(user.username)}</span>` : ""}</div>
+      <div class="rank-coins">${BC.formatCoins(user.coins)}</div>
+    `;
+    list.appendChild(row);
+  });
+}
+
+async function renderMyRank() {
+  if (!BC.isLoggedIn()) return;
+  try {
+    const me = await BC.api("/api/auth/me");
+    const banner = document.getElementById("myRankBanner");
+    banner.innerHTML = `
+      <div class="my-rank-banner">
+        <span>Sizning o'rningiz: <b>#${me.rank}</b></span>
+        <span style="color:var(--gold);">${BC.formatCoins(me.coins)} coin</span>
+      </div>`;
+  } catch (e) {
+    /* jim */
+  }
+}
+
+loadLeaderboard();
+</script>
+
+</body>
+</html>

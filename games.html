@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mini o'yinlar — BilimChallenge</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .page{padding:100px 0 60px;}
+  .page-header{text-align:center;margin-bottom:32px;}
+  .page-header h1{font-size:clamp(26px,3.5vw,36px);font-weight:700;margin-bottom:10px;}
+  .page-header p{color:var(--text-dim);font-size:14px;}
+
+  .daily-cap-banner{
+    max-width:480px;margin:0 auto 36px;background:var(--panel);border:1px solid var(--line);
+    border-radius:14px;padding:16px 20px;text-align:center;
+  }
+  .daily-cap-banner b{color:var(--gold);font-family:'Space Grotesk';}
+  .cap-bar-wrap{width:100%;height:6px;background:var(--panel-2);border-radius:100px;overflow:hidden;margin-top:10px;}
+  .cap-bar{height:100%;background:linear-gradient(90deg,var(--cyan),var(--gold));border-radius:100px;}
+
+  .game-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:20px;}
+  @media(max-width:700px){.game-grid{grid-template-columns:1fr;}}
+
+  .game-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:20px;overflow:hidden;
+    display:flex;flex-direction:column;transition:transform 0.15s,border-color 0.2s;
+  }
+  .game-card:hover{transform:translateY(-3px);border-color:var(--cyan-dim);}
+  .game-preview{
+    height:150px;display:flex;align-items:center;justify-content:center;font-size:52px;
+    background:linear-gradient(135deg,var(--panel-2),var(--panel));border-bottom:1px solid var(--line);
+  }
+  .game-body{padding:22px;}
+  .game-tag{
+    display:inline-block;font-family:'JetBrains Mono';font-size:11px;color:var(--gold);
+    background:rgba(245,185,66,0.1);padding:4px 10px;border-radius:6px;margin-bottom:12px;
+  }
+  .game-body h3{font-size:18px;font-weight:700;margin-bottom:8px;}
+  .game-body p{font-size:13px;color:var(--text-dim);margin-bottom:16px;}
+  .game-reward{font-size:12px;color:var(--gold);margin-bottom:14px;}
+
+  .login-gate{
+    max-width:420px;margin:60px auto 0;text-align:center;padding:36px 26px;
+    background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  }
+  .login-gate .icon{font-size:40px;margin-bottom:14px;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg class="brand-mark" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </a>
+    <div class="nav-links">
+      <a href="index.html">Savollar</a>
+      <a href="rating.html">Reyting</a>
+      <a href="shop.html">Magazin</a>
+      <a href="games.html" class="active">Mini o'yinlar</a>
+      <a href="search.html">Qidiruv</a>
+    </div>
+    <div class="nav-right" id="authSlot"></div>
+  </div>
+</nav>
+
+<div class="page wrap">
+  <div class="page-header">
+    <h1>🎮 Mini o'yinlar</h1>
+    <p>Har o'yin uchun oz miqdorda coin — kunlik limit bilan</p>
+  </div>
+
+  <div id="loginGate" style="display:none;">
+    <div class="login-gate">
+      <div class="icon">🔐</div>
+      <h2 style="margin-bottom:10px;">O'ynash uchun kiring</h2>
+      <p style="color:var(--text-dim);font-size:14px;">Bosh sahifaga o'tib Telegram orqali tizimga kiring. O'yinlarni login qilmasdan ham sinab ko'rishingiz mumkin, lekin coin berilmaydi.</p>
+    </div>
+  </div>
+
+  <div id="capBannerArea"></div>
+
+  <div class="game-grid">
+    <a class="game-card" href="games/memory.html">
+      <div class="game-preview">🧩</div>
+      <div class="game-body">
+        <span class="game-tag">XOTIRA</span>
+        <h3>Juftlik Topish</h3>
+        <p>Kartalarni ochib bir xil juftliklarni toping. 3 qiyinlik darajasi bor.</p>
+        <div class="game-reward">💰 3-8 coin</div>
+      </div>
+    </a>
+
+    <a class="game-card" href="games/reflex.html">
+      <div class="game-preview">⚡</div>
+      <div class="game-body">
+        <span class="game-tag">TEZLIK</span>
+        <h3>Reaksiya Sinovi</h3>
+        <p>Nishon yashil bo'lganda tezroq bosing. 5 raundlik test.</p>
+        <div class="game-reward">💰 2-6 coin</div>
+      </div>
+    </a>
+
+    <a class="game-card" href="games/logic.html">
+      <div class="game-preview">🧮</div>
+      <div class="game-body">
+        <span class="game-tag">MANTIQ</span>
+        <h3>Raqam Ketma-ketligi</h3>
+        <p>Naqshni toping va keyingi raqamni kiriting. Har darajada qiyinlashadi.</p>
+        <div class="game-reward">💰 4-10 coin</div>
+      </div>
+    </a>
+
+    <a class="game-card" href="games/wordchain.html">
+      <div class="game-preview">🔤</div>
+      <div class="game-body">
+        <span class="game-tag">SO'Z</span>
+        <h3>So'z Zanjiri</h3>
+        <p>Berilgan harflardan iloji boricha ko'p so'z tuzing — vaqt cheklangan.</p>
+        <div class="game-reward">💰 3-8 coin</div>
+      </div>
+    </a>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="brand" style="font-size:14px;">
+      <svg class="brand-mark" style="width:20px;height:20px;" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </div>
+    <div class="foot-links">
+      <a href="https://t.me/BilimChallenge_bot" target="_blank" rel="noopener">Telegram bot</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+const DAILY_CAP = 40;
+
+async function init() {
+  if (!BC.isLoggedIn()) {
+    document.getElementById("loginGate").style.display = "block";
+    return;
+  }
+  try {
+    const me = await BC.api("/api/auth/me");
+    // Kunlik cap holatini ko'rsatish uchun backend alohida endpoint bermasa,
+    // /api/games/finish javobidagi daily_remaining orqali hisoblanadi.
+    // Bu yerda umumiy ma'lumot ko'rsatamiz.
+    const area = document.getElementById("capBannerArea");
+    area.innerHTML = `
+      <div class="daily-cap-banner">
+        Kunlik mini o'yin coin limiti: <b>${DAILY_CAP}</b> coin
+        <div class="cap-bar-wrap"><div class="cap-bar" style="width:0%;" id="capBar"></div></div>
+      </div>`;
+  } catch (e) {
+    /* jim */
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>

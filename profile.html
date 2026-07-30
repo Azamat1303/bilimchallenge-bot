@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profil — BilimChallenge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .page{padding:100px 0 60px;}
+
+  .profile-header{
+    display:flex;align-items:center;gap:22px;margin-bottom:32px;flex-wrap:wrap;
+  }
+  .profile-avatar-wrap{
+    width:96px;height:96px;border-radius:50%;padding:4px;flex-shrink:0;
+    background:var(--panel-2);border:1px solid var(--line);
+  }
+  .profile-avatar-wrap.has-frame{background:var(--frame-bronze);}
+  .profile-avatar{
+    width:100%;height:100%;border-radius:50%;overflow:hidden;background:var(--panel-2);
+    display:flex;align-items:center;justify-content:center;
+  }
+  .profile-avatar img{width:100%;height:100%;object-fit:cover;}
+  .profile-avatar .fallback{font-family:'Space Grotesk';font-weight:700;font-size:32px;color:var(--cyan);}
+
+  .profile-info h1{font-size:24px;font-weight:700;display:flex;align-items:center;gap:8px;}
+  .profile-info .username{color:var(--text-dim);font-size:14px;margin-top:2px;}
+  .profile-info .badge-chip{font-size:18px;}
+  .profile-meta{display:flex;gap:16px;margin-top:10px;flex-wrap:wrap;font-size:13px;color:var(--text-dim);}
+
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:28px;}
+  .stat-box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;text-align:center;}
+  .stat-box b{font-family:'Space Grotesk';font-size:24px;display:block;margin-bottom:4px;}
+  .stat-box span{font-size:12px;color:var(--text-dim);}
+  .stat-box.coin b{color:var(--gold);}
+  .stat-box.streak b{color:var(--coral);}
+  .stat-box.rank b{color:var(--cyan);}
+  .stat-box.acc b{color:var(--green);}
+
+  .league-card{
+    display:flex;align-items:center;gap:16px;background:var(--panel);border:1px solid var(--line);
+    border-radius:16px;padding:20px 22px;margin-bottom:28px;
+  }
+  .league-icon{font-size:36px;}
+  .league-info{flex:1;}
+  .league-info b{font-family:'Space Grotesk';font-size:17px;display:block;text-transform:capitalize;}
+  .league-info span{font-size:13px;color:var(--text-dim);}
+  .league-progress-wrap{width:100%;height:6px;background:var(--panel-2);border-radius:100px;overflow:hidden;margin-top:8px;}
+  .league-progress{height:100%;background:linear-gradient(90deg,var(--cyan),var(--gold));border-radius:100px;}
+
+  .two-col{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media(max-width:700px){.two-col{grid-template-columns:1fr;}}
+
+  .breakdown-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;}
+  .breakdown-row:last-child{border-bottom:none;}
+  .breakdown-row span:last-child{font-weight:600;}
+
+  .self-actions{margin-top:24px;display:flex;gap:10px;flex-wrap:wrap;}
+
+  .not-found{text-align:center;padding:80px 20px;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg class="brand-mark" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </a>
+    <div class="nav-links">
+      <a href="index.html">Savollar</a>
+      <a href="rating.html">Reyting</a>
+      <a href="shop.html">Magazin</a>
+      <a href="games.html">Mini o'yinlar</a>
+      <a href="search.html">Qidiruv</a>
+    </div>
+    <div class="nav-right" id="authSlot"></div>
+  </div>
+</nav>
+
+<div class="page wrap-narrow" id="profilePage">
+  <div style="text-align:center;padding:60px 0;"><div class="spinner" style="margin:0 auto;"></div></div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="brand" style="font-size:14px;">
+      <svg class="brand-mark" style="width:20px;height:20px;" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </div>
+    <div class="foot-links">
+      <a href="https://t.me/BilimChallenge_bot" target="_blank" rel="noopener">Telegram bot</a>
+      <a href="games.html">Mini o'yinlar</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+const LEAGUE_ICONS = { bronza: "🥉", kumush: "🥈", oltin: "🥇", platina: "💎", olmos: "💠" };
+const LEAGUE_NEXT = { bronza: ["kumush", 80], kumush: ["oltin", 200], oltin: ["platina", 500], platina: ["olmos", 1000] };
+const SHOP_ITEM_EMOJI = {}; // shop.html dan yuklanadi kerak bo'lsa
+
+function getUrlUserId() {
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get("id");
+  if (id) return id;
+  const cached = BC.getCachedUser();
+  return cached ? cached.user_id : null;
+}
+
+async function loadProfile() {
+  const userId = getUrlUserId();
+  const container = document.getElementById("profilePage");
+
+  if (!userId) {
+    container.innerHTML = `
+      <div class="not-found">
+        <div style="font-size:40px;margin-bottom:14px;">🔐</div>
+        <h2 style="margin-bottom:10px;">Profilni ko'rish uchun kiring</h2>
+        <p style="color:var(--text-dim);">Telegram orqali tizimga kiring yoki boshqa foydalanuvchi profilini havola orqali oching.</p>
+      </div>`;
+    return;
+  }
+
+  try {
+    const p = await BC.api(`/api/profile/${userId}`);
+    renderProfile(p, userId);
+  } catch (e) {
+    container.innerHTML = `<div class="not-found"><div style="font-size:40px;margin-bottom:14px;">😕</div><h2>Foydalanuvchi topilmadi</h2></div>`;
+  }
+}
+
+function renderProfile(p, userId) {
+  const cached = BC.getCachedUser();
+  const isSelf = cached && String(cached.user_id) === String(userId);
+
+  const league = p.league || { name: "bronza", points: 0, week_points: 0 };
+  const leagueIcon = LEAGUE_ICONS[league.name] || "🥉";
+  const nextInfo = LEAGUE_NEXT[league.name];
+  let progressHtml = "";
+  if (nextInfo) {
+    const [nextName, nextPts] = nextInfo;
+    const prevThreshold = { bronza: 0, kumush: 80, oltin: 200, platina: 500 }[league.name] || 0;
+    const pct = Math.min(100, Math.round(((league.points - prevThreshold) / (nextPts - prevThreshold)) * 100));
+    progressHtml = `
+      <div class="league-progress-wrap"><div class="league-progress" style="width:${pct}%;"></div></div>
+      <span style="font-size:12px;color:var(--text-dim);">Keyingi: ${LEAGUE_ICONS[nextName]} ${nextName} — ${nextPts - league.points} ball qoldi</span>`;
+  }
+
+  const initial = p.first_name && p.first_name[0] ? p.first_name[0].toUpperCase() : "?";
+  const frameClass = p.equipped_frame ? p.equipped_frame.replace("frame_", "frame-") : "";
+  const badgeEmoji = p.equipped_badge ? "🏅" : ""; // haqiqiy emoji shop items ro'yxatidan olinadi (quyida)
+
+  const container = document.getElementById("profilePage");
+  container.innerHTML = `
+    <div class="profile-header">
+      <div class="profile-avatar-wrap ${frameClass}">
+        <div class="profile-avatar">
+          ${p.photo_url ? `<img src="${p.photo_url}" alt="${BC.escapeHtml(p.first_name)}">` : `<div class="fallback">${initial}</div>`}
+        </div>
+      </div>
+      <div class="profile-info">
+        <h1>${BC.escapeHtml(p.first_name)} <span class="badge-chip" id="badgeChip"></span></h1>
+        <div class="username">${p.username ? "@" + BC.escapeHtml(p.username) : "Username yo'q"}</div>
+        <div class="profile-meta">
+          <span>📅 ${p.join_date ? p.join_date.slice(0, 10) : "—"}</span>
+          <span>👥 ${p.ref_count} ta taklif</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-box coin"><b>${BC.formatCoins(p.coins)}</b><span>Coin</span></div>
+      <div class="stat-box rank"><b>#${p.rank}</b><span>Umumiy reyting</span></div>
+      <div class="stat-box streak"><b>${p.streak}</b><span>Joriy streak</span></div>
+      <div class="stat-box acc"><b>${p.accuracy}%</b><span>Aniqlik</span></div>
+    </div>
+
+    <div class="league-card">
+      <div class="league-icon">${leagueIcon}</div>
+      <div class="league-info">
+        <b>${league.name} liga</b>
+        <span>${league.points} umumiy ball · ${league.week_points} bu hafta</span>
+        ${progressHtml}
+      </div>
+    </div>
+
+    <div class="two-col">
+      <div class="panel">
+        <div class="panel-title">📊 Statistika</div>
+        <div class="breakdown-row"><span>Jami javoblar</span><span>${p.total_answers}</span></div>
+        <div class="breakdown-row"><span>To'g'ri javoblar</span><span>${p.correct_answers}</span></div>
+        <div class="breakdown-row"><span>Eng yaxshi streak</span><span>${p.max_streak}</span></div>
+        <div class="breakdown-row"><span>So'z o'yini balli</span><span>${p.word_game_points}</span></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">⚔️ Duel natijalari</div>
+        <div class="breakdown-row"><span>G'alabalar</span><span>${p.duel_wins}</span></div>
+        <div class="breakdown-row"><span>Mag'lubiyatlar</span><span>${p.duel_losses}</span></div>
+        <div class="breakdown-row"><span>G'alaba foizi</span><span>${p.duel_wins + p.duel_losses > 0 ? Math.round((p.duel_wins / (p.duel_wins + p.duel_losses)) * 100) + "%" : "—"}</span></div>
+      </div>
+    </div>
+
+    ${isSelf ? `
+      <div class="self-actions">
+        <a class="btn btn-primary" href="shop.html">🛍️ Magazinga o'tish</a>
+        <a class="btn btn-ghost" href="index.html">🎯 Savol javob berish</a>
+      </div>` : `
+      <div class="self-actions">
+        <a class="btn btn-ghost" href="search.html">🔍 Boshqa foydalanuvchi qidirish</a>
+      </div>`}
+  `;
+
+  loadEquippedBadgeEmoji(p.equipped_badge);
+}
+
+async function loadEquippedBadgeEmoji(badgeId) {
+  if (!badgeId) return;
+  try {
+    const items = await BC.api("/api/shop/items");
+    const item = items.find((i) => i.id === badgeId);
+    if (item) {
+      document.getElementById("badgeChip").textContent = item.emoji;
+    }
+  } catch (e) {
+    /* jim */
+  }
+}
+
+loadProfile();
+</script>
+
+</body>
+</html>

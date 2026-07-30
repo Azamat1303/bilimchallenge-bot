@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Magazin — BilimChallenge</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .page{padding:100px 0 60px;}
+  .page-header{text-align:center;margin-bottom:36px;}
+  .page-header h1{font-size:clamp(26px,3.5vw,36px);font-weight:700;margin-bottom:10px;}
+  .page-header p{color:var(--text-dim);font-size:14px;}
+
+  .my-coins-banner{
+    max-width:400px;margin:0 auto 36px;text-align:center;background:var(--panel);
+    border:1px solid var(--line);border-radius:14px;padding:16px;
+  }
+  .my-coins-banner b{font-family:'Space Grotesk';font-size:26px;color:var(--gold);display:block;}
+  .my-coins-banner span{font-size:12px;color:var(--text-dim);}
+
+  .tab-row{display:flex;gap:8px;justify-content:center;margin-bottom:32px;flex-wrap:wrap;}
+  .tab-btn{
+    padding:10px 18px;border-radius:100px;border:1px solid var(--line);background:var(--panel);
+    color:var(--text-dim);font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s;
+  }
+  .tab-btn.active{border-color:var(--cyan);color:var(--cyan);background:rgba(62,217,200,0.08);}
+
+  .item-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:16px;}
+  .item-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px;text-align:center;
+    display:flex;flex-direction:column;align-items:center;
+  }
+  .item-preview{
+    width:70px;height:70px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:30px;margin-bottom:14px;background:var(--panel-2);border:2px solid var(--line);
+  }
+  .item-preview.frame-bronze{background:var(--frame-bronze);border-color:transparent;}
+  .item-preview.frame-silver{background:var(--frame-silver);border-color:transparent;}
+  .item-preview.frame-gold{background:var(--frame-gold);border-color:transparent;}
+  .item-preview.frame-neon{background:var(--frame-neon);border-color:transparent;}
+  .item-preview.frame-fire{background:var(--frame-fire);border-color:transparent;}
+
+  .item-name{font-size:14px;font-weight:600;margin-bottom:4px;}
+  .item-price{font-size:13px;color:var(--gold);margin-bottom:14px;font-family:'Space Grotesk';font-weight:700;}
+  .item-price.free{color:var(--green);}
+
+  .item-badge-owned{
+    font-size:11px;color:var(--green);background:rgba(74,222,128,0.1);padding:3px 10px;
+    border-radius:100px;margin-bottom:10px;
+  }
+  .item-badge-equipped{
+    font-size:11px;color:var(--cyan);background:rgba(62,217,200,0.1);padding:3px 10px;
+    border-radius:100px;margin-bottom:10px;
+  }
+
+  .login-gate{
+    max-width:420px;margin:60px auto 0;text-align:center;padding:36px 26px;
+    background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  }
+  .login-gate .icon{font-size:40px;margin-bottom:14px;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg class="brand-mark" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </a>
+    <div class="nav-links">
+      <a href="index.html">Savollar</a>
+      <a href="rating.html">Reyting</a>
+      <a href="shop.html" class="active">Magazin</a>
+      <a href="games.html">Mini o'yinlar</a>
+      <a href="search.html">Qidiruv</a>
+    </div>
+    <div class="nav-right" id="authSlot"></div>
+  </div>
+</nav>
+
+<div class="page wrap">
+  <div class="page-header">
+    <h1>🛍️ Magazin</h1>
+    <p>Coinlaringizga profilingiz uchun bezaklar sotib oling</p>
+  </div>
+
+  <div id="loginGate" style="display:none;">
+    <div class="login-gate">
+      <div class="icon">🔐</div>
+      <h2 style="margin-bottom:10px;">Magazindan foydalanish uchun kiring</h2>
+      <p style="color:var(--text-dim);font-size:14px;">Bosh sahifaga o'tib Telegram orqali tizimga kiring.</p>
+    </div>
+  </div>
+
+  <div id="shopContent" style="display:none;">
+    <div class="my-coins-banner">
+      <b id="myCoins">—</b>
+      <span>Sizning coinlaringiz</span>
+    </div>
+
+    <div class="tab-row">
+      <button class="tab-btn active" data-type="all">Barchasi</button>
+      <button class="tab-btn" data-type="frame">🖼️ Ramkalar</button>
+      <button class="tab-btn" data-type="badge">🏅 Nishonlar</button>
+      <button class="tab-btn" data-type="avatar">✨ Fon effektlari</button>
+    </div>
+
+    <div class="item-grid" id="itemGrid"></div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap">
+    <div class="brand" style="font-size:14px;">
+      <svg class="brand-mark" style="width:20px;height:20px;" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </div>
+    <div class="foot-links">
+      <a href="https://t.me/BilimChallenge_bot" target="_blank" rel="noopener">Telegram bot</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+let allItems = [];
+let inventory = { owned: [], equipped: {} };
+let currentFilter = "all";
+
+async function init() {
+  if (!BC.isLoggedIn()) {
+    document.getElementById("loginGate").style.display = "block";
+    return;
+  }
+  document.getElementById("shopContent").style.display = "block";
+  await loadCoins();
+  await loadItems();
+}
+
+async function loadCoins() {
+  try {
+    const me = await BC.api("/api/auth/me");
+    document.getElementById("myCoins").textContent = BC.formatCoins(me.coins) + " 💰";
+  } catch (e) {
+    /* jim */
+  }
+}
+
+async function loadItems() {
+  const grid = document.getElementById("itemGrid");
+  grid.innerHTML = `<div style="grid-column:1/-1;text-align:center;padding:30px;"><div class="spinner" style="margin:0 auto;"></div></div>`;
+  try {
+    const [items, inv] = await Promise.all([
+      BC.api("/api/shop/items"),
+      BC.api("/api/shop/inventory"),
+    ]);
+    allItems = items;
+    inventory = inv;
+    renderItems();
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><p>Xato: ${BC.escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function renderItems() {
+  const grid = document.getElementById("itemGrid");
+  const filtered = currentFilter === "all" ? allItems : allItems.filter((i) => i.type === currentFilter);
+  if (!filtered.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><p>Bu toifada mahsulot yo'q</p></div>`;
+    return;
+  }
+  grid.innerHTML = "";
+  filtered.forEach((item) => {
+    const owned = inventory.owned.some((o) => o.item_id === item.id) || item.price === 0;
+    const equipped = inventory.equipped[item.type] === item.id;
+
+    const card = document.createElement("div");
+    card.className = "item-card";
+
+    let actionHtml;
+    if (equipped) {
+      actionHtml = `<span class="item-badge-equipped">✓ Kiyilgan</span>`;
+    } else if (owned) {
+      actionHtml = `<button class="btn btn-primary btn-sm" data-action="equip" data-id="${item.id}">Kiyish</button>`;
+    } else {
+      actionHtml = `<button class="btn btn-gold btn-sm" data-action="buy" data-id="${item.id}">Sotib olish</button>`;
+    }
+
+    card.innerHTML = `
+      <div class="item-preview ${item.css}">${item.type === "frame" ? "" : item.emoji}</div>
+      <div class="item-name">${item.emoji} ${BC.escapeHtml(item.name)}</div>
+      <div class="item-price ${item.price === 0 ? "free" : ""}">${item.price === 0 ? "Bepul" : "💰 " + item.price}</div>
+      ${owned && !equipped ? `<span class="item-badge-owned">Sizda bor</span>` : ""}
+      ${actionHtml}
+    `;
+    grid.appendChild(card);
+  });
+
+  grid.querySelectorAll("[data-action=buy]").forEach((btn) =>
+    btn.addEventListener("click", () => buyItem(btn.dataset.id))
+  );
+  grid.querySelectorAll("[data-action=equip]").forEach((btn) =>
+    btn.addEventListener("click", () => equipItem(btn.dataset.id))
+  );
+}
+
+async function buyItem(itemId) {
+  try {
+    const result = await BC.api("/api/shop/buy", { method: "POST", body: { item_id: itemId } });
+    BC.toast("Muvaffaqiyatli sotib olindi!", "success");
+    document.getElementById("myCoins").textContent = BC.formatCoins(result.remaining_coins) + " 💰";
+    const cached = BC.getCachedUser();
+    if (cached) {
+      cached.coins = result.remaining_coins;
+      BC.setCachedUser(cached);
+    }
+    await loadItems();
+  } catch (e) {
+    BC.toast(e.message, "error");
+  }
+}
+
+async function equipItem(itemId) {
+  try {
+    await BC.api("/api/shop/equip", { method: "POST", body: { item_id: itemId } });
+    BC.toast("Kiyildi!", "success");
+    await loadItems();
+  } catch (e) {
+    BC.toast(e.message, "error");
+  }
+}
+
+document.querySelectorAll(".tab-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((b) => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentFilter = btn.dataset.type;
+    renderItems();
+  });
+});
+
+init();
+</script>
+
+</body>
+</html>

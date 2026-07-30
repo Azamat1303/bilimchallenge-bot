@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BilimChallenge — Bilimingizni sinang</title>
+<meta name="description" content="Savollarga javob bering, coin to'plang, do'stlaringiz bilan Duel o'ynang.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+  .hero-mini{
+    padding:110px 0 40px;text-align:center;position:relative;overflow:hidden;
+  }
+  .hero-glow{
+    position:absolute;top:-20%;left:50%;transform:translateX(-50%);width:700px;height:400px;
+    background:radial-gradient(circle, rgba(62,217,200,0.14) 0%, transparent 70%);
+    pointer-events:none;
+  }
+  .hero-mini h1{font-size:clamp(28px,4vw,42px);font-weight:700;letter-spacing:-0.02em;margin-bottom:14px;position:relative;}
+  .hero-mini h1 .accent{color:var(--cyan);}
+  .hero-mini p{color:var(--text-dim);font-size:15px;position:relative;max-width:480px;margin:0 auto;}
+
+  .stats-row{display:flex;justify-content:center;gap:14px;margin:32px auto 0;flex-wrap:wrap;position:relative;}
+  .stat-chip{
+    background:var(--panel);border:1px solid var(--line);border-radius:100px;
+    padding:10px 18px;font-size:13px;display:flex;align-items:center;gap:8px;
+  }
+  .stat-chip b{color:var(--gold);font-family:'Space Grotesk';}
+
+  .section{padding:50px 0;}
+
+  /* Category grid */
+  .cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:20px;}
+  .cat-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px 16px;
+    text-align:center;cursor:pointer;transition:border-color 0.2s,transform 0.15s;
+  }
+  .cat-card:hover{border-color:var(--cyan-dim);transform:translateY(-2px);}
+  .cat-card .icon{font-size:26px;margin-bottom:10px;}
+  .cat-card .name{font-size:13px;font-weight:600;}
+  .cat-card .count{font-size:11px;color:var(--text-dim);margin-top:4px;}
+
+  /* Mode select */
+  .mode-row{display:flex;gap:10px;margin-top:16px;}
+  .mode-btn{
+    flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:16px;text-align:center;cursor:pointer;transition:all 0.2s;
+  }
+  .mode-btn:hover{border-color:var(--cyan-dim);}
+  .mode-btn .icon{font-size:20px;margin-bottom:6px;}
+  .mode-btn .label{font-size:13px;font-weight:600;}
+
+  /* Question card */
+  .quiz-card{
+    background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:28px;
+    max-width:640px;margin:0 auto;
+  }
+  .quiz-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:8px;}
+  .quiz-tag{
+    font-family:'JetBrains Mono';font-size:11px;padding:4px 10px;border-radius:6px;
+    background:rgba(62,217,200,0.1);color:var(--cyan);
+  }
+  .diff-tag{font-size:16px;}
+  .coin-info{font-size:13px;color:var(--text-dim);}
+  .coin-info b{color:var(--gold);}
+
+  .timer-bar-wrap{width:100%;height:6px;background:var(--panel-2);border-radius:100px;overflow:hidden;margin-bottom:20px;}
+  .timer-bar{height:100%;background:linear-gradient(90deg,var(--cyan),var(--gold));border-radius:100px;transition:width 1s linear;}
+  .timer-bar.warn{background:linear-gradient(90deg,var(--gold),var(--coral));}
+
+  .quiz-question{font-size:19px;font-weight:600;line-height:1.4;margin-bottom:22px;}
+
+  .opt-list{display:flex;flex-direction:column;gap:10px;margin-bottom:8px;}
+  .opt-btn{
+    background:var(--panel-2);border:1px solid var(--line);border-radius:12px;
+    padding:15px 18px;text-align:left;font-size:14px;font-weight:500;cursor:pointer;
+    display:flex;align-items:center;gap:12px;transition:all 0.15s;
+  }
+  .opt-btn:hover:not(:disabled){border-color:var(--cyan-dim);background:rgba(62,217,200,0.05);}
+  .opt-btn .letter{
+    width:26px;height:26px;border-radius:8px;background:var(--panel);display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk';font-weight:700;font-size:12px;flex-shrink:0;
+  }
+  .opt-btn.correct{border-color:var(--green);background:rgba(74,222,128,0.1);}
+  .opt-btn.correct .letter{background:var(--green);color:var(--bg);}
+  .opt-btn.wrong{border-color:var(--coral);background:rgba(255,107,107,0.1);}
+  .opt-btn.wrong .letter{background:var(--coral);color:var(--bg);}
+  .opt-btn:disabled{cursor:default;}
+  .opt-btn:disabled:not(.correct):not(.wrong){opacity:0.5;}
+
+  .open-answer-row{display:flex;gap:10px;margin-bottom:8px;}
+  .open-answer-row input{flex:1;}
+
+  .result-banner{
+    border-radius:14px;padding:16px 18px;margin-top:16px;font-size:14px;
+    display:none;align-items:flex-start;gap:10px;
+  }
+  .result-banner.show{display:flex;}
+  .result-banner.correct{background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);}
+  .result-banner.wrong{background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.3);}
+  .result-banner .rb-icon{font-size:20px;flex-shrink:0;}
+  .result-banner .rb-text b{display:block;margin-bottom:3px;}
+  .result-banner .rb-explain{color:var(--text-dim);font-size:13px;margin-top:6px;}
+
+  .quiz-footer{display:flex;justify-content:space-between;align-items:center;margin-top:20px;}
+  .streak-note{font-size:13px;color:var(--gold);display:none;}
+  .streak-note.show{display:block;}
+
+  .login-gate{
+    max-width:480px;margin:60px auto 0;text-align:center;padding:40px 30px;
+    background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  }
+  .login-gate .icon{font-size:44px;margin-bottom:16px;}
+  .login-gate h2{font-size:20px;margin-bottom:10px;}
+  .login-gate p{color:var(--text-dim);font-size:14px;margin-bottom:24px;}
+
+  #quizArea{display:none;}
+  #catArea{display:none;}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="index.html">
+      <svg class="brand-mark" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </a>
+    <div class="nav-links">
+      <a href="index.html" class="active">Savollar</a>
+      <a href="rating.html">Reyting</a>
+      <a href="shop.html">Magazin</a>
+      <a href="games.html">Mini o'yinlar</a>
+      <a href="search.html">Qidiruv</a>
+    </div>
+    <div class="nav-right" id="authSlot"></div>
+  </div>
+</nav>
+
+<section class="hero-mini">
+  <div class="hero-glow"></div>
+  <div class="wrap-narrow">
+    <h1>Bugun nechta savolga <span class="accent">to'g'ri</span> javob berasiz?</h1>
+    <p>Kategoriya tanlang, javob bering, coin to'plang — xuddi Telegram botdagi kabi.</p>
+    <div class="stats-row" id="statsRow"></div>
+  </div>
+</section>
+
+<!-- Login talab qilinadi -->
+<div class="login-gate" id="loginGate">
+  <div class="icon">🔐</div>
+  <h2>Boshlash uchun Telegram bilan kiring</h2>
+  <p>Coinlaringiz, streak va profilingiz bot bilan bir xil bo'ladi.</p>
+  <div id="loginGateWidget"></div>
+</div>
+
+<!-- Kategoriya tanlash -->
+<section class="section" id="catArea">
+  <div class="wrap-narrow">
+    <div class="panel-title">📂 Kategoriya tanlang</div>
+    <div class="cat-grid" id="catGrid"></div>
+  </div>
+</section>
+
+<!-- Savol turi tanlash (kategoriya bosilgach ko'rinadi) -->
+<section class="section" id="modeArea" style="display:none;">
+  <div class="wrap-narrow">
+    <div class="panel-title">📝 Savol turini tanlang — <span id="selectedCatName" style="color:var(--cyan);"></span></div>
+    <div class="mode-row">
+      <div class="mode-btn" data-mode="test"><div class="icon">📝</div><div class="label">Test</div></div>
+      <div class="mode-btn" data-mode="open"><div class="icon">✍️</div><div class="label">Ochiq</div></div>
+      <div class="mode-btn" data-mode="all"><div class="icon">🌐</div><div class="label">Aralash</div></div>
+    </div>
+    <button class="btn btn-ghost btn-sm" style="margin-top:16px;" id="backToCatBtn">← Kategoriyalarga qaytish</button>
+  </div>
+</section>
+
+<!-- Savol maydoni -->
+<section class="section" id="quizArea">
+  <div class="wrap-narrow">
+    <div class="quiz-card" id="quizCard"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="brand" style="font-size:14px;">
+      <svg class="brand-mark" style="width:20px;height:20px;" viewBox="0 0 32 32" fill="none">
+        <path d="M16 3C10 3 6 7.5 6 13c0 3.2 1.6 5.6 3.5 7.3L9 27h4l0.6-4.2c0.8 0.1 1.6 0.2 2.4 0.2s1.6-0.1 2.4-0.2L19 27h4l-0.5-6.7c1.9-1.7 3.5-4.1 3.5-7.3 0-5.5-4-10-10-10z" stroke="#3ED9C8" stroke-width="1.6"/>
+        <circle cx="16" cy="13" r="3.2" fill="#F5B942"/>
+      </svg>
+      BilimChallenge
+    </div>
+    <div class="foot-links">
+      <a href="https://t.me/BilimChallenge_bot" target="_blank" rel="noopener">Telegram bot</a>
+      <a href="games.html">Mini o'yinlar</a>
+      <a href="rating.html">Reyting</a>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/config.js"></script>
+<script src="assets/api.js"></script>
+<script>
+/* ═══════════════════════════════════════════════════════════════════════
+   VIKTORINA MANTIQI
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const DIFF_ICONS = { oson: "🟢", orta: "🟡", qiyin: "🔴" };
+const DIFF_NAMES = { oson: "Oson", orta: "O'rta", qiyin: "Qiyin" };
+const DIFF_TIME = { oson: 30, orta: 60, qiyin: 90 };
+
+let selectedCategory = null;
+let selectedMode = "all";
+let currentQuestion = null;
+let timerInterval = null;
+let timeLeft = 0;
+let totalTime = 0;
+let answered = false;
+
+function initPage() {
+  const loggedIn = BC.isLoggedIn();
+  document.getElementById("loginGate").style.display = loggedIn ? "none" : "block";
+  document.getElementById("catArea").style.display = loggedIn ? "block" : "none";
+
+  if (!loggedIn) {
+    mountGateWidget();
+    return;
+  }
+
+  loadCategories();
+  loadStats();
+}
+
+function mountGateWidget() {
+  const container = document.getElementById("loginGateWidget");
+  container.innerHTML = "";
+  const script = document.createElement("script");
+  script.src = "https://telegram.org/js/telegram-widget.js?22";
+  script.setAttribute("data-telegram-login", BC_CONFIG.BOT_USERNAME);
+  script.setAttribute("data-size", "large");
+  script.setAttribute("data-radius", "8");
+  script.setAttribute("data-onauth", "onTelegramAuth(user)");
+  script.setAttribute("data-request-access", "write");
+  container.appendChild(script);
+}
+
+window.onLoginSuccess = function () {
+  initPage();
+};
+
+async function loadStats() {
+  try {
+    const profile = await BC.api("/api/auth/me");
+    const row = document.getElementById("statsRow");
+    row.innerHTML = `
+      <div class="stat-chip">💰 <b>${BC.formatCoins(profile.coins)}</b> coin</div>
+      <div class="stat-chip">🔥 <b>${profile.streak}</b> streak</div>
+      <div class="stat-chip">🏆 <b>#${profile.rank}</b> reyting</div>
+    `;
+  } catch (e) {
+    /* login gate allaqachon ko'rsatilgan bo'lishi mumkin */
+  }
+}
+
+const CAT_ICONS = {
+  "Tarix": "🏛️", "Geografiya": "🌍", "Fizika": "⚛️", "Kimyo": "🧪",
+  "Biologiya": "🧬", "Matematika": "➗", "Adabiyot": "📖", "Sport": "⚽",
+  "San'at": "🎨", "Musiqa": "🎵", "Din": "🕌", "Siyosat": "🏛️",
+  "Umumiy bilim": "💡", "IT": "💻", "Til": "🗣️",
+};
+
+async function loadCategories() {
+  const grid = document.getElementById("catGrid");
+  grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><div class="spinner" style="margin:0 auto;"></div></div>`;
+  try {
+    // Backendda alohida /api/categories yo'q bo'lsa ham, savol so'rovi orqali
+    // birinchi savolni olib kategoriya nomini ko'rsatamiz. Aksincha,
+    // agar backend categories endpoint qo'shsa shu yerdan chaqiriladi.
+    const cats = await BC.api("/api/categories").catch(() => null);
+    if (cats && cats.length) {
+      renderCategories(cats);
+    } else {
+      grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;">
+        <div class="icon">📭</div><p>Hozircha kategoriyalar yuklanmadi. Iltimos, /api/categories endpointini backendga qo'shing.</p>
+      </div>`;
+    }
+  } catch (e) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1;"><p>Xato: ${BC.escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function renderCategories(cats) {
+  const grid = document.getElementById("catGrid");
+  grid.innerHTML = "";
+  cats.forEach((cat) => {
+    const card = document.createElement("div");
+    card.className = "cat-card";
+    const icon = CAT_ICONS[cat.name] || "📂";
+    card.innerHTML = `
+      <div class="icon">${icon}</div>
+      <div class="name">${BC.escapeHtml(cat.name)}</div>
+      <div class="count">${cat.count} ta savol</div>
+    `;
+    card.addEventListener("click", () => selectCategory(cat.name));
+    grid.appendChild(card);
+  });
+}
+
+function selectCategory(name) {
+  selectedCategory = name;
+  document.getElementById("selectedCatName").textContent = name;
+  document.getElementById("catArea").style.display = "none";
+  document.getElementById("modeArea").style.display = "block";
+  window.scrollTo({ top: document.getElementById("modeArea").offsetTop - 80, behavior: "smooth" });
+}
+
+document.querySelectorAll(".mode-btn").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    selectedMode = btn.dataset.mode;
+    document.getElementById("modeArea").style.display = "none";
+    startQuiz();
+  });
+});
+
+document.getElementById("backToCatBtn").addEventListener("click", () => {
+  document.getElementById("modeArea").style.display = "none";
+  document.getElementById("catArea").style.display = "block";
+});
+
+async function startQuiz() {
+  document.getElementById("quizArea").style.display = "block";
+  window.scrollTo({ top: document.getElementById("quizArea").offsetTop - 80, behavior: "smooth" });
+  await fetchNextQuestion();
+}
+
+async function fetchNextQuestion() {
+  const card = document.getElementById("quizCard");
+  card.innerHTML = `<div style="text-align:center;padding:40px;"><div class="spinner" style="margin:0 auto;"></div></div>`;
+  clearInterval(timerInterval);
+  answered = false;
+
+  try {
+    const q = await BC.api(
+      `/api/question/next?category=${encodeURIComponent(selectedCategory)}&mode=${selectedMode}`
+    );
+    if (!q || q.finished) {
+      card.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🎉</div>
+          <p>Bu bo'limdagi barcha savollarga javob berdingiz!</p>
+          <button class="btn btn-primary" style="margin-top:16px;" onclick="document.getElementById('quizArea').style.display='none';document.getElementById('catArea').style.display='block';loadCategories();">
+            Boshqa kategoriya tanlash
+          </button>
+        </div>`;
+      return;
+    }
+    currentQuestion = q;
+    renderQuestion(q);
+  } catch (e) {
+    card.innerHTML = `<div class="empty-state"><p>Xato: ${BC.escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function renderQuestion(q) {
+  const card = document.getElementById("quizCard");
+  const diffIcon = DIFF_ICONS[q.difficulty] || "🟡";
+  const diffName = DIFF_NAMES[q.difficulty] || "O'rta";
+  totalTime = DIFF_TIME[q.difficulty] || 30;
+  timeLeft = totalTime;
+
+  let bodyHtml = "";
+  if (q.q_type === "test") {
+    bodyHtml = `<div class="opt-list" id="optList"></div>`;
+  } else {
+    bodyHtml = `
+      <div class="open-answer-row">
+        <input type="text" id="openAnswerInput" placeholder="Javobingizni yozing...">
+        <button class="btn btn-primary" id="submitOpenBtn">Yuborish</button>
+      </div>`;
+  }
+
+  card.innerHTML = `
+    <div class="quiz-meta">
+      <span class="quiz-tag">📂 ${BC.escapeHtml(q.category)}</span>
+      <span class="diff-tag">${diffIcon} ${diffName}</span>
+      <span class="coin-info">💰 <b>+${q.coins}</b> · ❌ <b>-${Math.round(q.coins * 0.3 * 10) / 10}</b></span>
+    </div>
+    <div class="timer-bar-wrap"><div class="timer-bar" id="timerBar" style="width:100%;"></div></div>
+    <div class="quiz-question">${BC.escapeHtml(q.text)}</div>
+    ${bodyHtml}
+    <div class="result-banner" id="resultBanner"></div>
+    <div class="quiz-footer">
+      <span class="streak-note" id="streakNote"></span>
+      <button class="btn btn-ghost btn-sm" id="nextBtn" style="display:none;">Keyingi savol →</button>
+    </div>
+  `;
+
+  if (q.q_type === "test") {
+    const optList = document.getElementById("optList");
+    q.options.forEach((opt, i) => {
+      const letter = String.fromCharCode(65 + i);
+      const b = document.createElement("button");
+      b.className = "opt-btn";
+      b.innerHTML = `<span class="letter">${letter}</span><span>${BC.escapeHtml(opt)}</span>`;
+      b.addEventListener("click", () => submitAnswer(letter));
+      optList.appendChild(b);
+    });
+  } else {
+    const input = document.getElementById("openAnswerInput");
+    const submitBtn = document.getElementById("submitOpenBtn");
+    const submit = () => {
+      if (input.value.trim()) submitAnswer(input.value.trim());
+    };
+    submitBtn.addEventListener("click", submit);
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") submit();
+    });
+  }
+
+  document.getElementById("nextBtn").addEventListener("click", fetchNextQuestion);
+
+  startTimer();
+}
+
+function startTimer() {
+  const bar = document.getElementById("timerBar");
+  timerInterval = setInterval(() => {
+    timeLeft--;
+    const pct = Math.max(0, (timeLeft / totalTime) * 100);
+    bar.style.width = pct + "%";
+    if (timeLeft <= totalTime * 0.3) bar.classList.add("warn");
+    if (timeLeft <= 0) {
+      clearInterval(timerInterval);
+      if (!answered) submitAnswer(null, true);
+    }
+  }, 1000);
+}
+
+async function submitAnswer(answer, timedOut = false) {
+  if (answered) return;
+  answered = true;
+  clearInterval(timerInterval);
+
+  // Test rejimida tugmalarni bloklash
+  document.querySelectorAll(".opt-btn").forEach((b) => (b.disabled = true));
+  const openBtn = document.getElementById("submitOpenBtn");
+  if (openBtn) openBtn.disabled = true;
+
+  try {
+    const result = await BC.api("/api/question/answer", {
+      method: "POST",
+      body: {
+        question_id: currentQuestion.question_id,
+        answer: timedOut ? null : answer,
+        timed_out: timedOut,
+      },
+    });
+
+    // Test rejimida to'g'ri/xato belgilash
+    if (currentQuestion.q_type === "test") {
+      document.querySelectorAll(".opt-btn").forEach((b) => {
+        const letter = b.querySelector(".letter").textContent;
+        if (letter === result.correct_letter) b.classList.add("correct");
+        else if (letter === answer && !result.is_correct) b.classList.add("wrong");
+      });
+    }
+
+    const banner = document.getElementById("resultBanner");
+    banner.classList.add("show");
+    if (timedOut) {
+      banner.classList.add("wrong");
+      banner.innerHTML = `<span class="rb-icon">⏰</span><div class="rb-text"><b>Vaqt tugadi! −${result.penalty} coin</b>${result.explanation ? `<div class="rb-explain">💡 ${BC.escapeHtml(result.explanation)}</div>` : ""}</div>`;
+    } else if (result.is_correct) {
+      banner.classList.add("correct");
+      banner.innerHTML = `<span class="rb-icon">✅</span><div class="rb-text"><b>To'g'ri! +${result.earned} coin</b>${result.explanation ? `<div class="rb-explain">💡 ${BC.escapeHtml(result.explanation)}</div>` : ""}</div>`;
+      if (result.bonus_multiplier > 1) {
+        const note = document.getElementById("streakNote");
+        note.classList.add("show");
+        note.textContent = `🔥 Streak bonusi x${result.bonus_multiplier}`;
+      }
+    } else {
+      banner.classList.add("wrong");
+      banner.innerHTML = `<span class="rb-icon">❌</span><div class="rb-text"><b>Noto'g'ri! −${result.penalty} coin</b>${result.correct_answer ? `<div class="rb-explain">To'g'ri javob: <b>${BC.escapeHtml(result.correct_answer)}</b></div>` : ""}${result.explanation ? `<div class="rb-explain">💡 ${BC.escapeHtml(result.explanation)}</div>` : ""}</div>`;
+    }
+
+    document.getElementById("nextBtn").style.display = "inline-flex";
+    loadStats();
+
+    // Kesh yangilash
+    const cached = BC.getCachedUser();
+    if (cached && result.total_coins != null) {
+      cached.coins = result.total_coins;
+      BC.setCachedUser(cached);
+      const navCoins = document.getElementById("navCoins");
+      if (navCoins) navCoins.textContent = result.total_coins;
+    }
+  } catch (e) {
+    BC.toast("Xato: " + e.message, "error");
+  }
+}
+
+initPage();
+</script>
+
+</body>
+</html>
