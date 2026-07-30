@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raqam Ketma-ketligi — BilimChallenge</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  body{padding:20px 16px 40px;display:flex;flex-direction:column;align-items:center;}
+  header{width:100%;max-width:480px;display:flex;align-items:center;justify-content:space-between;margin:20px 0 18px;}
+  .back{font-size:14px;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+  .back:hover{color:var(--cyan);}
+  h1{font-size:20px;font-weight:700;}
+
+  .login-note{
+    width:100%;max-width:480px;background:rgba(245,185,66,0.08);border:1px solid rgba(245,185,66,0.3);
+    border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--gold);text-align:center;
+  }
+
+  .hud{width:100%;max-width:480px;display:flex;gap:10px;margin-bottom:20px;}
+  .hud-chip{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;text-align:center;}
+  .hud-chip b{font-family:'Space Grotesk';font-size:22px;display:block;}
+  .hud-chip span{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;}
+  .hud-chip.level b{color:var(--cyan);}
+  .hud-chip.lives b{color:var(--coral);}
+  .hud-chip.score b{color:var(--gold);}
+
+  .puzzle-card{
+    width:100%;max-width:480px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:32px 24px;text-align:center;
+  }
+  .puzzle-label{font-size:12px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:16px;}
+  .sequence-row{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin-bottom:28px;}
+  .seq-num{
+    min-width:56px;height:56px;padding:0 10px;border-radius:12px;background:var(--panel-2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk';font-weight:700;font-size:20px;
+  }
+  .seq-num.mystery{
+    background:rgba(62,217,200,0.1);border-color:var(--cyan-dim);color:var(--cyan);font-size:26px;
+  }
+
+  .answer-row{display:flex;gap:10px;margin-bottom:8px;}
+  .answer-row input{
+    text-align:center;font-family:'Space Grotesk';font-size:20px;font-weight:700;
+  }
+
+  .feedback{
+    border-radius:12px;padding:14px 16px;margin-top:16px;font-size:14px;display:none;align-items:center;gap:10px;
+  }
+  .feedback.show{display:flex;}
+  .feedback.correct{background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:var(--green);}
+  .feedback.wrong{background:rgba(255,107,107,0.1);border:1px solid rgba(255,107,107,0.3);color:var(--coral);}
+
+  .result-panel{display:none;width:100%;max-width:480px;margin-top:24px;background:var(--panel);border:1px solid var(--cyan-dim);border-radius:16px;padding:28px;text-align:center;}
+  .result-panel.show{display:block;animation:fadeUp 0.4s ease;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+  .result-panel .emoji{font-size:40px;margin-bottom:12px;}
+  .result-stats{display:flex;justify-content:center;gap:24px;margin-bottom:22px;flex-wrap:wrap;}
+  .result-stats div b{font-family:'Space Grotesk';font-size:24px;display:block;color:var(--gold);}
+  .result-stats div span{font-size:12px;color:var(--text-dim);}
+  .btn-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+
+  #puzzleArea{display:block;}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="../games.html">← O'yinlarga qaytish</a>
+  <h1 class="display">🧮 Raqam Ketma-ketligi</h1>
+  <div style="width:80px;"></div>
+</header>
+
+<div class="login-note" id="loginNote" style="display:none;">
+  🔐 Coin olish uchun <a href="../index.html" style="color:var(--gold);text-decoration:underline;">tizimga kiring</a>.
+</div>
+
+<div class="hud">
+  <div class="hud-chip level"><b id="levelVal">1</b><span>Daraja</span></div>
+  <div class="hud-chip lives"><b id="livesVal">3</b><span>Jonlar</span></div>
+  <div class="hud-chip score"><b id="scoreVal">0</b><span>Ball</span></div>
+</div>
+
+<div id="puzzleArea">
+  <div class="puzzle-card">
+    <div class="puzzle-label">Naqshni toping</div>
+    <div class="sequence-row" id="sequenceRow"></div>
+    <div class="answer-row">
+      <input type="text" id="answerInput" inputmode="numeric" placeholder="?">
+      <button class="btn btn-primary" id="submitBtn">Tekshirish</button>
+    </div>
+    <div class="feedback" id="feedback"></div>
+  </div>
+</div>
+
+<div class="result-panel" id="resultPanel">
+  <div class="emoji" id="resultEmoji">🏆</div>
+  <h2 class="display" id="resultTitle">O'yin tugadi!</h2>
+  <p id="resultDesc" style="color:var(--text-dim);font-size:14px;margin-bottom:20px;"></p>
+  <div class="result-stats">
+    <div><b id="resLevel">1</b><span>Yetgan daraja</span></div>
+    <div><b id="resScore">0</b><span>Ball</span></div>
+    <div id="resCoinsWrap" style="display:none;"><b id="resCoins">0</b><span>Coin</span></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary" id="playAgainBtn">Qayta o'ynash</button>
+    <a class="btn btn-ghost" href="../games.html">Boshqa o'yin</a>
+  </div>
+</div>
+
+<script src="../assets/config.js"></script>
+<script src="../assets/api.js"></script>
+<script>
+let level = 1;
+let lives = 3;
+let score = 0;
+let currentAnswer = null;
+let gameSession = null;
+let gameOver = false;
+
+document.getElementById("loginNote").style.display = BC.isLoggedIn() ? "none" : "block";
+
+// Har xil turdagi ketma-ketlik generatorlari — daraja oshgani sari qiyinlashadi
+function generateSequence(lvl) {
+  const generators = [
+    // Arifmetik: +d
+    () => {
+      const start = Math.floor(Math.random() * 10) + 1;
+      const diff = Math.floor(Math.random() * 5) + 1;
+      const seq = [start, start + diff, start + 2 * diff, start + 3 * diff];
+      return { seq, next: start + 4 * diff };
+    },
+    // Geometrik: *k
+    () => {
+      const start = Math.floor(Math.random() * 3) + 2;
+      const k = Math.floor(Math.random() * 2) + 2;
+      const seq = [start, start * k, start * k * k, start * k * k * k];
+      return { seq, next: start * Math.pow(k, 4) };
+    },
+    // Fibonachchi uslubi: a(n) = a(n-1) + a(n-2)
+    () => {
+      const a = Math.floor(Math.random() * 5) + 1;
+      const b = Math.floor(Math.random() * 5) + 1;
+      const seq = [a, b, a + b, a + 2 * b];
+      return { seq, next: 2 * a + 3 * b };
+    },
+    // Kvadratlar ketma-ketligi ustiga qo'shimcha
+    () => {
+      const offset = Math.floor(Math.random() * 5);
+      const seq = [1 + offset, 4 + offset, 9 + offset, 16 + offset];
+      return { seq, next: 25 + offset };
+    },
+    // Ikkilangan farq (differences increase by constant)
+    () => {
+      const start = Math.floor(Math.random() * 5) + 1;
+      const diffStart = Math.floor(Math.random() * 3) + 1;
+      const diffStep = Math.floor(Math.random() * 2) + 1;
+      let seq = [start];
+      let d = diffStart;
+      for (let i = 0; i < 3; i++) {
+        seq.push(seq[seq.length - 1] + d);
+        d += diffStep;
+      }
+      const next = seq[seq.length - 1] + d;
+      return { seq, next };
+    },
+  ];
+
+  // Daraja oshgani sari murakkabroq generatorlar ehtimoli oshadi
+  const maxIdx = Math.min(generators.length - 1, Math.floor((lvl - 1) / 2) + 1);
+  const idx = Math.floor(Math.random() * (maxIdx + 1));
+  return generators[idx]();
+}
+
+async function startGame() {
+  level = 1; lives = 3; score = 0; gameOver = false;
+  updateHud();
+  document.getElementById("resultPanel").classList.remove("show");
+  document.getElementById("puzzleArea").style.display = "block";
+
+  if (BC.isLoggedIn()) {
+    try {
+      gameSession = await BC.api("/api/games/start", { method: "POST", body: { game: "logic" } });
+    } catch (e) {
+      gameSession = null;
+    }
+  }
+
+  nextPuzzle();
+}
+
+function updateHud() {
+  document.getElementById("levelVal").textContent = level;
+  document.getElementById("livesVal").textContent = lives;
+  document.getElementById("scoreVal").textContent = score;
+}
+
+function nextPuzzle() {
+  const { seq, next } = generateSequence(level);
+  currentAnswer = next;
+
+  const row = document.getElementById("sequenceRow");
+  row.innerHTML = "";
+  seq.forEach((n) => {
+    const el = document.createElement("div");
+    el.className = "seq-num";
+    el.textContent = n;
+    row.appendChild(el);
+  });
+  const mystery = document.createElement("div");
+  mystery.className = "seq-num mystery";
+  mystery.textContent = "?";
+  row.appendChild(mystery);
+
+  const input = document.getElementById("answerInput");
+  input.value = "";
+  input.disabled = false;
+  input.focus();
+  document.getElementById("submitBtn").disabled = false;
+  document.getElementById("feedback").classList.remove("show", "correct", "wrong");
+}
+
+function checkAnswer() {
+  if (gameOver) return;
+  const input = document.getElementById("answerInput");
+  const userAnswer = parseInt(input.value.trim());
+  if (isNaN(userAnswer)) return;
+
+  input.disabled = true;
+  document.getElementById("submitBtn").disabled = true;
+
+  const feedback = document.getElementById("feedback");
+  feedback.classList.add("show");
+
+  if (userAnswer === currentAnswer) {
+    feedback.classList.add("correct");
+    feedback.innerHTML = `✅ To'g'ri! Keyingi daraja...`;
+    score += level * 10;
+    level++;
+    updateHud();
+    setTimeout(nextPuzzle, 1100);
+  } else {
+    lives--;
+    updateHud();
+    feedback.classList.add("wrong");
+    feedback.innerHTML = `❌ Noto'g'ri. To'g'ri javob: <b>${currentAnswer}</b>`;
+    if (lives <= 0) {
+      setTimeout(endGame, 1400);
+    } else {
+      setTimeout(nextPuzzle, 1400);
+    }
+  }
+}
+
+async function endGame() {
+  gameOver = true;
+  document.getElementById("puzzleArea").style.display = "none";
+
+  document.getElementById("resLevel").textContent = level;
+  document.getElementById("resScore").textContent = score;
+
+  let title, desc, emoji;
+  if (level >= 8) { title = "Mantiq ustasi! 🧠"; desc = "Ajoyib naqsh aniqlash qobiliyati."; emoji = "🏆"; }
+  else if (level >= 5) { title = "Yaxshi natija!"; desc = "Yana mashq qilsangiz balandroq ketasiz."; emoji = "🔥"; }
+  else { title = "Davom eting!"; desc = "Har safar biroz uzoqroq borasiz."; emoji = "💪"; }
+
+  document.getElementById("resultEmoji").textContent = emoji;
+  document.getElementById("resultTitle").textContent = title;
+  document.getElementById("resultDesc").textContent = desc;
+  document.getElementById("resultPanel").classList.add("show");
+
+  const scoreRatio = Math.max(0, Math.min(1, (level - 1) / 8));
+
+  if (gameSession && BC.isLoggedIn()) {
+    try {
+      const result = await BC.api("/api/games/finish", {
+        method: "POST",
+        body: { game: "logic", started_at: gameSession.started_at, signature: gameSession.signature, score_ratio: scoreRatio },
+      });
+      if (result.earned > 0) {
+        document.getElementById("resCoinsWrap").style.display = "block";
+        document.getElementById("resCoins").textContent = "+" + result.earned;
+      } else if (result.message) {
+        document.getElementById("resultDesc").textContent = result.message;
+      }
+    } catch (e) {
+      /* jim */
+    }
+  }
+}
+
+document.getElementById("submitBtn").addEventListener("click", checkAnswer);
+document.getElementById("answerInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") checkAnswer();
+});
+document.getElementById("playAgainBtn").addEventListener("click", startGame);
+
+startGame();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Reaksiya Sinovi — BilimChallenge</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  *{user-select:none;-webkit-tap-highlight-color:transparent;}
+  body{padding:20px 16px 40px;display:flex;flex-direction:column;align-items:center;}
+  header{width:100%;max-width:480px;display:flex;align-items:center;justify-content:space-between;margin:20px 0 18px;}
+  .back{font-size:14px;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+  .back:hover{color:var(--cyan);}
+  h1{font-size:20px;font-weight:700;}
+
+  .login-note{
+    width:100%;max-width:480px;background:rgba(245,185,66,0.08);border:1px solid rgba(245,185,66,0.3);
+    border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--gold);text-align:center;
+  }
+
+  .hud{width:100%;max-width:480px;display:flex;gap:10px;margin-bottom:20px;}
+  .hud-chip{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;text-align:center;}
+  .hud-chip b{font-family:'Space Grotesk';font-size:22px;display:block;}
+  .hud-chip span{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;}
+  .hud-chip.round b{color:var(--cyan);}
+  .hud-chip.score b{color:var(--gold);}
+  .hud-chip.avg b{color:#B98CFF;}
+
+  .arena{
+    width:100%;max-width:480px;aspect-ratio:1/1;background:var(--panel);border:1px solid var(--line);
+    border-radius:20px;display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;cursor:pointer;
+  }
+  .arena.go{background:radial-gradient(circle at center, #14382F, var(--panel) 70%);}
+  .arena.early{background:radial-gradient(circle at center, #3A1A1A, var(--panel) 70%);}
+
+  .target{
+    width:130px;height:130px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk';font-weight:700;font-size:16px;text-align:center;
+    transition:background 0.15s, box-shadow 0.15s, transform 0.15s;
+  }
+  .target.idle{background:var(--panel-2);border:2px solid var(--line);color:var(--text-dim);}
+  .target.ready{
+    background:radial-gradient(circle at 35% 35%, #FF8787, var(--coral));color:#fff;
+    box-shadow:0 0 40px rgba(255,107,107,0.4);animation:breathe 1.6s ease-in-out infinite;
+  }
+  @keyframes breathe{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
+  .target.go{
+    background:radial-gradient(circle at 35% 35%, #6EF0B8, var(--green));color:#04241a;
+    box-shadow:0 0 60px rgba(74,222,128,0.6);transform:scale(1.05);
+  }
+  .target.early-tap{background:radial-gradient(circle at 35% 35%, #FF8787, var(--coral));color:#fff;}
+
+  .msg{position:absolute;bottom:26px;left:0;right:0;text-align:center;font-size:13px;color:var(--text-dim);padding:0 20px;}
+
+  .result-panel{display:none;width:100%;max-width:480px;margin-top:24px;background:var(--panel);border:1px solid var(--cyan-dim);border-radius:16px;padding:28px;text-align:center;}
+  .result-panel.show{display:block;animation:fadeUp 0.4s ease;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+  .result-panel .emoji{font-size:40px;margin-bottom:12px;}
+  .result-panel h2{font-size:22px;margin-bottom:6px;}
+  .result-panel p{color:var(--text-dim);font-size:14px;margin-bottom:20px;}
+  .result-stats{display:flex;justify-content:center;gap:24px;margin-bottom:22px;flex-wrap:wrap;}
+  .result-stats div b{font-family:'Space Grotesk';font-size:24px;display:block;color:var(--gold);}
+  .result-stats div span{font-size:12px;color:var(--text-dim);}
+  .btn-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+
+  .best-row{width:100%;max-width:480px;margin-top:16px;text-align:center;font-size:13px;color:var(--text-dim);}
+  .best-row b{color:var(--gold);}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="../games.html">← O'yinlarga qaytish</a>
+  <h1 class="display">⚡ Reaksiya Sinovi</h1>
+  <div style="width:80px;"></div>
+</header>
+
+<div class="login-note" id="loginNote" style="display:none;">
+  🔐 Coin olish uchun <a href="../index.html" style="color:var(--gold);text-decoration:underline;">tizimga kiring</a>.
+</div>
+
+<div class="hud">
+  <div class="hud-chip round"><b id="roundVal">0/5</b><span>Raund</span></div>
+  <div class="hud-chip score"><b id="scoreVal">—</b><span>Oxirgi (ms)</span></div>
+  <div class="hud-chip avg"><b id="avgVal">—</b><span>O'rtacha</span></div>
+</div>
+
+<div class="arena" id="arena">
+  <div class="target idle" id="target">Boshlash uchun bosing</div>
+  <div class="msg" id="msg">Qizil bo'lganda kuting — yashil bo'lganda tez bosing!</div>
+</div>
+
+<div class="best-row" id="bestRow"></div>
+
+<div class="result-panel" id="resultPanel">
+  <div class="emoji" id="resultEmoji">🏆</div>
+  <h2 class="display" id="resultTitle">Test yakunlandi!</h2>
+  <p id="resultDesc">Barcha raundlar tugadi.</p>
+  <div class="result-stats">
+    <div><b id="resAvg">0ms</b><span>O'rtacha</span></div>
+    <div><b id="resBest">0ms</b><span>Eng yaxshi</span></div>
+    <div id="resCoinsWrap" style="display:none;"><b id="resCoins">0</b><span>Coin</span></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary" id="playAgainBtn">Qayta o'ynash</button>
+    <a class="btn btn-ghost" href="../games.html">Boshqa o'yin</a>
+  </div>
+</div>
+
+<script src="../assets/config.js"></script>
+<script src="../assets/api.js"></script>
+<script>
+const TOTAL_ROUNDS = 5;
+let round = 0;
+let times = [];
+let state = 'idle';
+let goTimeout = null;
+let goStart = 0;
+let gameSession = null;
+
+document.getElementById("loginNote").style.display = BC.isLoggedIn() ? "none" : "block";
+
+const arena = document.getElementById('arena');
+const target = document.getElementById('target');
+const msg = document.getElementById('msg');
+
+function loadBest(){
+  const v = localStorage.getItem('bc_reflex_best');
+  document.getElementById("bestRow").innerHTML = v ? 'Shaxsiy rekord: <b>' + v + 'ms</b>' : '';
+}
+
+async function resetGame(){
+  round = 0; times = []; state = 'idle';
+  clearTimeout(goTimeout);
+  document.getElementById("resultPanel").classList.remove('show');
+  document.getElementById("roundVal").textContent = '0/' + TOTAL_ROUNDS;
+  document.getElementById("scoreVal").textContent = '—';
+  document.getElementById("avgVal").textContent = '—';
+  setIdle();
+  loadBest();
+
+  if (BC.isLoggedIn()) {
+    try {
+      gameSession = await BC.api("/api/games/start", { method: "POST", body: { game: "reflex" } });
+    } catch (e) {
+      gameSession = null;
+    }
+  }
+}
+
+function setIdle(){
+  state = 'idle';
+  arena.className = 'arena';
+  target.className = 'target idle';
+  target.textContent = 'Boshlash uchun bosing';
+  msg.textContent = "Qizil bo'lganda kuting — yashil bo'lganda tez bosing!";
+}
+
+function startRound(){
+  if(round >= TOTAL_ROUNDS) return;
+  state = 'waiting';
+  arena.className = 'arena';
+  target.className = 'target ready';
+  target.textContent = 'Kuting...';
+  msg.textContent = 'Yashil rangga o\'tguncha kutib turing';
+
+  const delay = 1200 + Math.random() * 2200;
+  goTimeout = setTimeout(() => {
+    state = 'go';
+    goStart = performance.now();
+    arena.className = 'arena go';
+    target.className = 'target go';
+    target.textContent = 'BOS!';
+    msg.textContent = 'Hozir!';
+  }, delay);
+}
+
+function handleTap(){
+  if(state === 'idle'){ startRound(); return; }
+
+  if(state === 'waiting'){
+    clearTimeout(goTimeout);
+    state = 'early';
+    arena.className = 'arena early';
+    target.className = 'target early-tap';
+    target.textContent = "Erta! ⚡";
+    msg.textContent = "Yashil rangni kuting. Qayta urinib ko'ring.";
+    setTimeout(() => { startRound(); }, 1100);
+    return;
+  }
+
+  if(state === 'go'){
+    const reaction = Math.round(performance.now() - goStart);
+    times.push(reaction);
+    round++;
+    document.getElementById("scoreVal").textContent = reaction;
+    const avg = Math.round(times.reduce((a,b)=>a+b,0)/times.length);
+    document.getElementById("avgVal").textContent = avg;
+    document.getElementById("roundVal").textContent = round + '/' + TOTAL_ROUNDS;
+
+    target.className = 'target go';
+    target.textContent = reaction + 'ms';
+
+    if(round >= TOTAL_ROUNDS){
+      setTimeout(showResult, 700);
+    } else {
+      setTimeout(() => { startRound(); }, 900);
+    }
+  }
+}
+
+async function showResult(){
+  const avg = Math.round(times.reduce((a,b)=>a+b,0)/times.length);
+  const best = Math.min(...times);
+
+  document.getElementById('resAvg').textContent = avg + 'ms';
+  document.getElementById('resBest').textContent = best + 'ms';
+
+  let title, desc, emoji;
+  if(avg < 250){ title = "Chaqmoq tezlik! ⚡"; desc = "Reaksiyangiz professional darajada."; emoji = "⚡"; }
+  else if(avg < 350){ title = "Ajoyib natija!"; desc = "O'rtachadan ancha tezroq javob berdingiz."; emoji = "🔥"; }
+  else if(avg < 450){ title = "Yaxshi natija"; desc = "Yana mashq qilsangiz tezlashadi."; emoji = "👍"; }
+  else { title = "Davom eting!"; desc = "Har mashqda reaksiyangiz tezlashadi."; emoji = "💪"; }
+
+  document.getElementById('resultEmoji').textContent = emoji;
+  document.getElementById('resultTitle').textContent = title;
+  document.getElementById('resultDesc').textContent = desc;
+  document.getElementById('resultPanel').classList.add('show');
+
+  const prevBest = localStorage.getItem('bc_reflex_best');
+  if(!prevBest || best < parseInt(prevBest)){
+    localStorage.setItem('bc_reflex_best', best);
+  }
+  loadBest();
+
+  // Sifat koeffitsienti: 200ms = ideal (1.0), 600ms+ = past (0.0)
+  const scoreRatio = Math.max(0, Math.min(1, (600 - avg) / 400));
+
+  if (gameSession && BC.isLoggedIn()) {
+    try {
+      const result = await BC.api("/api/games/finish", {
+        method: "POST",
+        body: {
+          game: "reflex",
+          started_at: gameSession.started_at,
+          signature: gameSession.signature,
+          score_ratio: scoreRatio,
+        },
+      });
+      if (result.earned > 0) {
+        document.getElementById("resCoinsWrap").style.display = "block";
+        document.getElementById("resCoins").textContent = "+" + result.earned;
+      } else if (result.message) {
+        document.getElementById("resultDesc").textContent = result.message;
+      }
+    } catch (e) {
+      /* jim */
+    }
+  }
+}
+
+arena.addEventListener('click', handleTap);
+document.getElementById('playAgainBtn').addEventListener('click', resetGame);
+
+resetGame();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>So'z Zanjiri — BilimChallenge</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../assets/style.css">
+<style>
+  body{padding:20px 16px 40px;display:flex;flex-direction:column;align-items:center;}
+  header{width:100%;max-width:520px;display:flex;align-items:center;justify-content:space-between;margin:20px 0 18px;}
+  .back{font-size:14px;color:var(--text-dim);display:flex;align-items:center;gap:6px;}
+  .back:hover{color:var(--cyan);}
+  h1{font-size:20px;font-weight:700;}
+
+  .login-note{
+    width:100%;max-width:520px;background:rgba(245,185,66,0.08);border:1px solid rgba(245,185,66,0.3);
+    border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--gold);text-align:center;
+  }
+
+  .hud{width:100%;max-width:520px;display:flex;gap:10px;margin-bottom:20px;}
+  .hud-chip{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;text-align:center;}
+  .hud-chip b{font-family:'Space Grotesk';font-size:22px;display:block;}
+  .hud-chip span{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.04em;}
+  .hud-chip.time b{color:var(--gold);}
+  .hud-chip.words b{color:var(--cyan);}
+  .hud-chip.score b{color:var(--green);}
+
+  .letters-card{
+    width:100%;max-width:520px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:26px 22px;
+  }
+  .letters-row{display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-bottom:22px;}
+  .letter-tile{
+    width:44px;height:44px;border-radius:10px;background:var(--panel-2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk';font-weight:700;
+    font-size:18px;text-transform:uppercase;
+  }
+
+  .input-row{display:flex;gap:10px;margin-bottom:8px;}
+  .input-row input{font-size:15px;}
+
+  .feedback-line{min-height:20px;font-size:13px;margin-top:8px;text-align:center;}
+  .feedback-line.correct{color:var(--green);}
+  .feedback-line.wrong{color:var(--coral);}
+
+  .found-words{
+    display:flex;flex-wrap:wrap;gap:6px;margin-top:18px;max-height:120px;overflow-y:auto;
+  }
+  .found-word-chip{
+    background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.3);color:var(--green);
+    padding:5px 12px;border-radius:100px;font-size:12px;font-weight:600;
+  }
+
+  .result-panel{display:none;width:100%;max-width:520px;margin-top:24px;background:var(--panel);border:1px solid var(--cyan-dim);border-radius:16px;padding:28px;text-align:center;}
+  .result-panel.show{display:block;animation:fadeUp 0.4s ease;}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:translateY(0);}}
+  .result-panel .emoji{font-size:40px;margin-bottom:12px;}
+  .result-stats{display:flex;justify-content:center;gap:24px;margin-bottom:22px;flex-wrap:wrap;}
+  .result-stats div b{font-family:'Space Grotesk';font-size:24px;display:block;color:var(--gold);}
+  .result-stats div span{font-size:12px;color:var(--text-dim);}
+  .btn-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+</style>
+</head>
+<body>
+
+<header>
+  <a class="back" href="../games.html">← O'yinlarga qaytish</a>
+  <h1 class="display">🔤 So'z Zanjiri</h1>
+  <div style="width:80px;"></div>
+</header>
+
+<div class="login-note" id="loginNote" style="display:none;">
+  🔐 Coin olish uchun <a href="../index.html" style="color:var(--gold);text-decoration:underline;">tizimga kiring</a>.
+</div>
+
+<div class="hud">
+  <div class="hud-chip time"><b id="timeVal">60</b><span>Soniya</span></div>
+  <div class="hud-chip words"><b id="wordsVal">0</b><span>So'zlar</span></div>
+  <div class="hud-chip score"><b id="scoreVal">0</b><span>Ball</span></div>
+</div>
+
+<div class="letters-card" id="lettersCard">
+  <div class="letters-row" id="lettersRow"></div>
+  <div class="input-row">
+    <input type="text" id="wordInput" placeholder="So'z yozing va Enter bosing..." autocomplete="off">
+    <button class="btn btn-primary" id="submitWordBtn">Qo'shish</button>
+  </div>
+  <div class="feedback-line" id="feedbackLine"></div>
+  <div class="found-words" id="foundWords"></div>
+</div>
+
+<div class="result-panel" id="resultPanel">
+  <div class="emoji">🏆</div>
+  <h2 class="display" id="resultTitle">Vaqt tugadi!</h2>
+  <p style="color:var(--text-dim);font-size:14px;margin-bottom:20px;" id="resultDesc"></p>
+  <div class="result-stats">
+    <div><b id="resWords">0</b><span>Topilgan so'zlar</span></div>
+    <div><b id="resScore">0</b><span>Ball</span></div>
+    <div id="resCoinsWrap" style="display:none;"><b id="resCoins">0</b><span>Coin</span></div>
+  </div>
+  <div class="btn-row">
+    <button class="btn btn-primary" id="playAgainBtn">Qayta o'ynash</button>
+    <a class="btn btn-ghost" href="../games.html">Boshqa o'yin</a>
+  </div>
+</div>
+
+<script src="../assets/config.js"></script>
+<script src="../assets/api.js"></script>
+<script>
+// O'zbek tilida keng tarqalgan so'zlar bazasi — harflar shu so'zlar orasidan tanlanadi,
+// shuning uchun har doim kamida bir nechta yechim mavjud bo'ladi.
+const WORD_BANK = [
+  "ona","ota","uy","non","suv","tosh","yer","kun","tun","ish",
+  "kitob","maktab","talaba","o'qish","yozish","daftar","qalam","ruchka",
+  "olma","uzum","non","sabzi","piyoz","kartoshka","go'sht","sut","asal",
+  "osmon","quyosh","oy","yulduz","bulut","yomg'ir","qor","shamol",
+  "shahar","qishloq","ko'cha","uy","xona","eshik","deraza","tom",
+  "sevgi","do'stlik","oila","bola","ayol","erkak","bola","qiz",
+  "sport","futbol","o'yin","kitob","musiqa","raqs","kino","teatr",
+  "vaqt","soat","daqiqa","yil","oy","hafta","bugun","ertaga",
+  "ish","mehnat","pul","bozor","do'kon","savdo","narx","chegirma",
+  "salom","rahmat","xayr","iltimos","kechirasiz","albatta","yaxshi","yomon",
+];
+
+let secondsLeft = 60;
+let timerInterval = null;
+let foundWords = [];
+let score = 0;
+let letterPool = [];
+let gameSession = null;
+let gameOver = false;
+
+document.getElementById("loginNote").style.display = BC.isLoggedIn() ? "none" : "block";
+
+function generateLetterPool() {
+  // Tasodifiy 3 ta so'z tanlab, ularning harflarini birlashtiramiz — shunda
+  // kamida shu 3 so'z aniq yechim bo'ladi, lekin boshqa kombinatsiyalar ham chiqishi mumkin.
+  const shuffledBank = [...WORD_BANK].sort(() => Math.random() - 0.5);
+  const seedWords = shuffledBank.slice(0, 4);
+  let letters = [];
+  seedWords.forEach((w) => {
+    for (const ch of w.replace(/'/g, "")) letters.push(ch);
+  });
+  // Ba'zi keng tarqalgan unlilarni qo'shib, imkoniyatni oshiramiz
+  letters.push("a", "o", "i", "n", "r", "t");
+  letters = letters.sort(() => Math.random() - 0.5).slice(0, 12);
+  return letters;
+}
+
+function canFormWord(word, pool) {
+  const poolCopy = [...pool];
+  for (const ch of word.replace(/'/g, "")) {
+    const idx = poolCopy.indexOf(ch);
+    if (idx === -1) return false;
+    poolCopy.splice(idx, 1);
+  }
+  return true;
+}
+
+async function startGame() {
+  secondsLeft = 60;
+  foundWords = [];
+  score = 0;
+  gameOver = false;
+  letterPool = generateLetterPool();
+
+  document.getElementById("resultPanel").classList.remove("show");
+  document.getElementById("lettersCard").style.display = "block";
+  document.getElementById("timeVal").textContent = secondsLeft;
+  document.getElementById("wordsVal").textContent = "0";
+  document.getElementById("scoreVal").textContent = "0";
+  document.getElementById("foundWords").innerHTML = "";
+  document.getElementById("wordInput").value = "";
+  document.getElementById("wordInput").disabled = false;
+  document.getElementById("submitWordBtn").disabled = false;
+
+  renderLetters();
+
+  if (BC.isLoggedIn()) {
+    try {
+      gameSession = await BC.api("/api/games/start", { method: "POST", body: { game: "wordchain" } });
+    } catch (e) {
+      gameSession = null;
+    }
+  }
+
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    secondsLeft--;
+    document.getElementById("timeVal").textContent = secondsLeft;
+    if (secondsLeft <= 0) {
+      clearInterval(timerInterval);
+      endGame();
+    }
+  }, 1000);
+
+  document.getElementById("wordInput").focus();
+}
+
+function renderLetters() {
+  const row = document.getElementById("lettersRow");
+  row.innerHTML = "";
+  letterPool.forEach((ch) => {
+    const tile = document.createElement("div");
+    tile.className = "letter-tile";
+    tile.textContent = ch;
+    row.appendChild(tile);
+  });
+}
+
+function submitWord() {
+  if (gameOver) return;
+  const input = document.getElementById("wordInput");
+  const word = input.value.trim().toLowerCase();
+  const feedback = document.getElementById("feedbackLine");
+
+  if (!word) return;
+
+  if (word.length < 2) {
+    feedback.className = "feedback-line wrong";
+    feedback.textContent = "So'z juda qisqa";
+    return;
+  }
+  if (foundWords.includes(word)) {
+    feedback.className = "feedback-line wrong";
+    feedback.textContent = "Bu so'zni allaqachon yozdingiz";
+    return;
+  }
+  if (!canFormWord(word, letterPool)) {
+    feedback.className = "feedback-line wrong";
+    feedback.textContent = "Bu so'zni berilgan harflardan tuzib bo'lmaydi";
+    return;
+  }
+  if (!WORD_BANK.includes(word)) {
+    feedback.className = "feedback-line wrong";
+    feedback.textContent = "Bu so'z lug'atda yo'q";
+    return;
+  }
+
+  foundWords.push(word);
+  const points = word.length * 2;
+  score += points;
+
+  document.getElementById("wordsVal").textContent = foundWords.length;
+  document.getElementById("scoreVal").textContent = score;
+
+  const chip = document.createElement("span");
+  chip.className = "found-word-chip";
+  chip.textContent = word + " +" + points;
+  document.getElementById("foundWords").appendChild(chip);
+
+  feedback.className = "feedback-line correct";
+  feedback.textContent = "To'g'ri! +" + points + " ball";
+  input.value = "";
+}
+
+async function endGame() {
+  gameOver = true;
+  document.getElementById("wordInput").disabled = true;
+  document.getElementById("submitWordBtn").disabled = true;
+
+  document.getElementById("resWords").textContent = foundWords.length;
+  document.getElementById("resScore").textContent = score;
+
+  let desc;
+  if (foundWords.length >= 8) desc = "Ajoyib so'z boyligi!";
+  else if (foundWords.length >= 4) desc = "Yaxshi natija, davom eting!";
+  else desc = "Yana mashq qilsangiz ko'proq so'z topasiz.";
+  document.getElementById("resultDesc").textContent = desc;
+  document.getElementById("resultPanel").classList.add("show");
+
+  const scoreRatio = Math.max(0, Math.min(1, foundWords.length / 10));
+
+  if (gameSession && BC.isLoggedIn()) {
+    try {
+      const result = await BC.api("/api/games/finish", {
+        method: "POST",
+        body: { game: "wordchain", started_at: gameSession.started_at, signature: gameSession.signature, score_ratio: scoreRatio },
+      });
+      if (result.earned > 0) {
+        document.getElementById("resCoinsWrap").style.display = "block";
+        document.getElementById("resCoins").textContent = "+" + result.earned;
+      } else if (result.message) {
+        document.getElementById("resultDesc").textContent = result.message;
+      }
+    } catch (e) {
+      /* jim */
+    }
+  }
+}
+
+document.getElementById("submitWordBtn").addEventListener("click", submitWord);
+document.getElementById("wordInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") submitWord();
+});
+document.getElementById("playAgainBtn").addEventListener("click", startGame);
+
+startGame();
+</script>
+
+</body>
+</html>
